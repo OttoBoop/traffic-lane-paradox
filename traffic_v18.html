@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Lane Paradox</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050508;color:#b0b2b8;font-family:'JetBrains Mono',monospace;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+.hdr{padding:10px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid#0e0e16;background:#070709;flex-shrink:0;gap:10px;flex-wrap:wrap}
+.hdr h1{font-size:12px;font-weight:500;letter-spacing:3px;text-transform:uppercase;color:#555}.hdr h1 b{color:#c92a1e;font-weight:700}
+.ctrls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cg{display:flex;align-items:center;gap:4px;font-size:9px;color:#3a3a44;text-transform:uppercase;letter-spacing:1px}
+.cg input[type=range]{width:55px;accent-color:#c92a1e;height:2px}
+.cg input[type=number]{width:40px;background:#0a0a10;border:1px solid#16161e;color:#888;padding:2px 4px;font-family:inherit;font-size:9px;border-radius:2px;text-align:center}
+.cv{color:#555;min-width:18px;text-align:center;font-size:9px}
+.sep{width:1px;height:16px;background:#0e0e18}
+.btn{background:none;border:1px solid#16161e;color:#555;font-family:inherit;font-size:9px;padding:4px 12px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;border-radius:2px;transition:all .15s;white-space:nowrap}
+.btn:hover{border-color:#333;color:#bbb}
+.bp{border-color:#12261a;color:#4a4}.bp:hover{border-color:#1a4428;color:#6c6;background:#030804}.bp.on{border-color:#2a2210;color:#ca5}
+.br{border-color:#261212;color:#a44}.br:hover{border-color:#441a1a;color:#d66;background:#080303}
+.sim{flex:1;display:flex;padding:8px;gap:8px;min-height:0;overflow-x:auto}
+.sc{flex:0 0 auto;min-width:160px;width:calc(33.3% - 8px);display:flex;flex-direction:column;background:#08080e;border:1px solid#0e0e16;border-radius:4px;overflow:hidden;position:relative}
+.sc-h{display:flex;align-items:center;justify-content:space-between;padding:5px 10px;border-bottom:1px solid#0e0e16;background:#0a0a12;flex-shrink:0}
+.sc-ln{display:flex;align-items:center;gap:3px}
+.lb{background:none;border:1px solid#14141e;color:#3a3a44;font-family:inherit;font-size:9px;width:18px;height:18px;cursor:pointer;border-radius:2px;display:flex;align-items:center;justify-content:center;transition:all .15s}.lb:hover{border-color:#3a3a50;color:#999}
+.lx{background:none;border:1px solid#1a1014;color:#553030;font-family:inherit;font-size:11px;width:18px;height:18px;cursor:pointer;border-radius:2px;display:flex;align-items:center;justify-content:center;transition:all .15s;margin-left:4px}.lx:hover{border-color:#442020;color:#cc4444;background:#0a0404}
+.sc-lbl{font-size:10px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:#444;padding:0 4px}
+.tmr{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:#c92a1e;letter-spacing:.5px;transition:color .3s}.tmr.done{color:#2dd47a}.tmr.wait{color:#1a1a22}
+.rank{position:absolute;top:34px;right:8px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:2px 6px;border-radius:2px;display:none;z-index:5}.rank.show{display:block}
+.r1{background:#0e1e0e;color:#2dd47a;border:1px solid#1a3a1a}.r2{background:#0e0e1a;color:#6868aa;border:1px solid#1e1e40}.r3{background:#1a100e;color:#aa7744;border:1px solid#302218}.rx{background:#0c0c10;color:#333;border:1px solid#181820}
+.cw{flex:1;position:relative;min-height:0}.cw canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+.add{min-width:28px;max-width:28px;display:flex;align-items:center;justify-content:center;background:#08080e;border:1px dashed#0e0e18;border-radius:4px;cursor:pointer;color:#16161e;font-size:16px;transition:all .2s;flex-shrink:0}.add:hover{border-color:#28283a;color:#444}
+.ftr{padding:4px 20px;border-top:1px solid#0e0e16;background:#070709;display:flex;align-items:center;justify-content:center;gap:16px;font-size:8px;color:#222228;letter-spacing:1px;text-transform:uppercase;flex-shrink:0}
+.dt{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px;vertical-align:middle}.dl{background:#c48828}.dr{background:#2888c4}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>The Lane <b>Paradox</b></h1>
+<div class="ctrls">
+<div class="cg"><label>Cars</label><input type="number" id="nCars" value="10" min="2" max="40"></div>
+<div class="cg"><label>Left%</label><input type="range" id="split" min="0" max="100" value="50" step="5"><span class="cv" id="splitV">50</span></div>
+<div class="cg"><label>Speed</label><input type="range" id="spd" min="0.3" max="3" value="1" step="0.1"><span class="cv" id="spdV">1.0×</span></div>
+<div class="sep"></div>
+<button class="btn bp" id="bPlay">▶ Play</button>
+<button class="btn br" id="bReset">↺ Reset</button>
+</div></div>
+<div class="sim" id="simC"></div>
+<div class="ftr"><span><span class="dt dl"></span>wants left</span><span><span class="dt dr"></span>wants right</span><span>bicycle · cone detection · reservations · blinkers</span></div>
+
+<script src="traffic_core.js"></script>
+<script>
+const {Sim,Ren,V0_DEF}=window.TrafficCore;
+let scenarios=[{lanes:1},{lanes:2},{lanes:3}],sims=[],rens=[],cvs=[];
+let anim=null,gRun=false,gSeed=42,lastT=0,finishOrder=[];
+const $=id=>document.getElementById(id);
+function getP(){return{v0:V0_DEF};}
+function build(){const c=$('simC');c.innerHTML='';sims=[];rens=[];cvs=[];finishOrder=[];
+  scenarios.forEach((sc,i)=>{const d=document.createElement('div');d.className='sc';d.id=`sc${i}`;
+    d.innerHTML=`<div class="sc-h"><div class="sc-ln"><button class="lb" data-i="${i}" data-d="-1">-</button><span class="sc-lbl" id="l${i}">${sc.lanes} Lane${sc.lanes>1?'s':''}</span><button class="lb" data-i="${i}" data-d="1">+</button><button class="lx" data-rm="${i}">x</button></div><div class="tmr wait" id="t${i}">0.00s</div></div><span class="rank" id="r${i}"></span><div class="cw" id="w${i}"><canvas id="c${i}"></canvas></div>`;
+    c.appendChild(d);});
+  const ab=document.createElement('div');ab.className='add';ab.textContent='+';
+  ab.onclick=()=>{scenarios.push({lanes:(Math.max(...scenarios.map(s=>s.lanes))||0)+1});rebuild();};c.appendChild(ab);
+  c.querySelectorAll('.lb').forEach(b=>{b.onclick=()=>{const i=+b.dataset.i,d=+b.dataset.d;scenarios[i].lanes=Math.max(1,Math.min(8,scenarios[i].lanes+d));rebuild();};});
+  c.querySelectorAll('.lx').forEach(b=>{b.onclick=()=>{const i=+b.dataset.rm;if(scenarios.length>1){scenarios.splice(i,1);rebuild();}};});
+  resize();initSims();renderAll();}
+function resize(){scenarios.forEach((_,i)=>{const wr=$(`w${i}`),cv=$(`c${i}`);if(!wr||!cv)return;const r=wr.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;cv.getContext('2d').scale(d,d);cvs[i]=cv;});}
+function initSims(){const nc=Math.max(2,Math.min(40,parseInt($('nCars').value)||10)),sp=parseInt($('split').value)||50;
+  sims=scenarios.map((sc,i)=>{const s=new Sim(sc.lanes,nc,sp,gSeed+i);const cv=cvs[i];if(cv){const d=devicePixelRatio||1;s.init(cv.width/d,cv.height/d);}return s;});
+  rens=sims.map((s,i)=>new Ren(cvs[i],s));}
+function renderAll(){rens.forEach(r=>r.draw());sims.forEach((s,i)=>{const el=$(`t${i}`);if(!el)return;el.textContent=s.timerSec.toFixed(2)+'s';el.className='tmr'+(s.finished?' done':(!s.started?' wait':''));});}
+function updateRanks(){sims.forEach((s,i)=>{if(s.finished&&!finishOrder.includes(i))finishOrder.push(i);});const lb=['1st','2nd','3rd','4th','5th','6th'];sims.forEach((_,i)=>{const el=$(`r${i}`);if(!el)return;const ri=finishOrder.indexOf(i);if(ri>=0){el.textContent=lb[ri]||`#${ri+1}`;el.className=`rank show ${ri<3?'r'+(ri+1):'rx'}`;}});}
+function rebuild(){cancelAnimationFrame(anim);gRun=false;$('bPlay').textContent='Play';$('bPlay').classList.remove('on');build();}
+function animate(time){if(!gRun)return;const raw=lastT?Math.min((time-lastT)/16.67,3):0;lastT=time;const dt=raw*(parseFloat($('spd').value)||1),P=getP();sims.forEach(s=>s.tick(dt,P));renderAll();updateRanks();if(sims.every(s=>s.finished)){gRun=false;$('bPlay').textContent='Play';$('bPlay').classList.remove('on');}if(gRun)anim=requestAnimationFrame(animate);}
+$('bPlay').onclick=()=>{if(gRun){gRun=false;$('bPlay').textContent='Play';$('bPlay').classList.remove('on');cancelAnimationFrame(anim);}else{if(!sims.some(s=>s.started))sims.forEach(s=>s.start());gRun=true;lastT=0;$('bPlay').textContent='Pause';$('bPlay').classList.add('on');anim=requestAnimationFrame(animate);}};
+$('bReset').onclick=()=>{gSeed=Math.floor(Math.random()*1e5);rebuild();};
+$('split').oninput=e=>$('splitV').textContent=e.target.value;
+$('spd').oninput=e=>$('spdV').textContent=parseFloat(e.target.value).toFixed(1)+'x';
+['nCars','split'].forEach(id=>{$(id).onchange=()=>{if(!gRun)rebuild();};});
+window.addEventListener('resize',()=>{resize();sims.forEach((s,i)=>{const cv=cvs[i];if(cv){const d=devicePixelRatio||1;s.init(cv.width/d,cv.height/d);}});renderAll();});
+build();
+</script>
+</body>
+</html>

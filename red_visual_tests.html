@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase 1 Visual Tests</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050508;color:#b0b2b8;font-family:'JetBrains Mono',monospace;padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:12px;height:100vh}
+h1{font-size:12px;font-weight:500;letter-spacing:3px;text-transform:uppercase;color:#555}
+h1 b{color:#c92a1e;font-weight:700}
+.sub{font-size:9px;color:#333;line-height:1.6;max-width:760px}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+button{background:#0a0a12;border:1px solid #16161e;color:#777;font-family:inherit;font-size:9px;padding:6px 12px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;border-radius:2px}
+button:hover{border-color:#333;color:#bbb}
+.tests{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding-bottom:8px;flex:1}
+.test{min-width:360px;max-width:360px;display:flex;flex-direction:column;background:#08080e;border:1px solid #0e0e16;border-radius:4px;overflow:hidden}
+.test-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #0e0e16;background:#0a0a12;gap:10px}
+.title{display:flex;flex-direction:column;gap:3px}
+.title h3{font-size:10px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:#777}
+.proof{font-size:8px;color:#444;line-height:1.4}
+.badge{font-size:9px;font-weight:700;padding:2px 8px;border-radius:2px;letter-spacing:1px}
+.badge.wait{background:#0e0e1e;color:#668;border:1px solid #1a1a3a}
+.badge.pass{background:#0e1e0e;color:#2d4;border:1px solid #1a3a1a}
+.badge.fail{background:#1e0e0e;color:#c44;border:1px solid #3a1a1a}
+.canvas-wrap{height:520px;position:relative;background:#06060a}
+.canvas-wrap canvas{position:absolute;inset:0;width:100%;height:100%}
+.panel-ctrls{display:flex;gap:8px;padding:8px 10px;border-top:1px solid #0e0e16;border-bottom:1px solid #0e0e16;background:#07070c}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px;font-size:9px;line-height:1.5;color:#666}
+.metric{background:#07070c;border:1px solid #101018;border-radius:3px;padding:6px}
+.metric .k{display:block;color:#333;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
+.status{padding:8px 10px;border-top:1px solid #0e0e16;background:#07070c;font-size:9px;color:#555}
+</style>
+</head>
+<body>
+<h1>Phase 1 <b>Visual Tests</b></h1>
+<p class="sub">
+These cards run the real traffic simulation core. Run them one by one or all together.
+Phase 1 is about stable same-direction multi-lane flow: no lateral wobble, no false maneuvering,
+and expected throughput scaling before mixed-direction traffic is tuned again.
+</p>
+<div class="controls">
+  <button id="runAll">Run All</button>
+  <button id="pauseAll">Pause All</button>
+  <button id="resetAll">Reset All</button>
+</div>
+<div class="tests" id="tests"></div>
+
+<script src="traffic_core.js"></script>
+<script>
+const {Sim,Car,Ren,pathQuery,satOverlap,PROGRESS_EPS}=window.TrafficCore;
+const FIXED_DT=1;
+
+function createStandardSim({lanes,cars,split,w,h,seed}){
+  const sim=new Sim(lanes,cars,split,seed);
+  sim.init(w,h);
+  return sim;
+}
+
+function createCustomStraightSim({lanes,w,h,seed,target,cars}){
+  const sim=new Sim(lanes,0,target==='left'?100:0,seed);
+  sim.init(w,h);
+  sim.cars=[];
+  cars.forEach((spec,i)=>{
+    const car=new Car(i,sim.road.laneX(spec.lane)+(spec.dx||0),spec.y,-Math.PI/2,spec.lane,target,0);
+    car.pathKey=spec.lane+'-'+target;
+    car.path=sim.road.fullPaths[car.pathKey];
+    car.pathIdx=pathQuery(car.path,car.x,car.y,0).idx;
+    car.lastProgress=car.pathIdx*window.TrafficCore.PATH_SP;
+    sim.cars.push(car);
+  });
+  return sim;
+}
+
+function runHidden(lanes,cars,split,w,h,seed,maxTicks){
+  const sim=createStandardSim({lanes,cars,split,w,h,seed});
+  sim.start();
+  for(let i=0;i<maxTicks&&!sim.finished;i++)sim.tick(FIXED_DT,{v0:window.TrafficCore.V0_DEF});
+  return sim;
+}
+
+const testDefs=[
+  {
+    id:'F',
+    name:'Side-by-side lane hold',
+    proof:'Two cars in adjacent lanes, same direction, straight segment. They should stay centered without wobble.',
+    w:220,h:760,maxTicks:160,seed:11,
+    build(){
+      const sim=createCustomStraightSim({
+        lanes:2,w:this.w,h:this.h,seed:this.seed,target:'left',
+        cars:[
+          {lane:0,y:640},
+          {lane:1,y:640}
+        ]
+      });
+      const laneCenters=sim.cars.map(c=>sim.road.laneX(c.lane));
+      return{sim,state:{laneCenters,maxDrift:0,maxYaw:0,everOverlap:false}};
+    },
+    update(inst){
+      const {sim,state}=inst;
+      sim.tick(FIXED_DT,{v0:window.TrafficCore.V0_DEF});
+      sim.cars.forEach((car,i)=>{
+        if(car.seg!=='main')return;
+        state.maxDrift=Math.max(state.maxDrift,Math.abs(car.x-state.laneCenters[i]));
+        state.maxYaw=Math.max(state.maxYaw,Math.abs(car.th-(-Math.PI/2)));
+      });
+      state.everOverlap=satOverlap(sim.cars[0],sim.cars[1])||state.everOverlap;
+      return inst.tick>=this.maxTicks;
+    },
+    verdict(inst){
+      const {sim,state}=inst;
+      return state.maxDrift<0.75&&state.maxYaw<0.03&&!state.everOverlap&&sim.maneuverTriggerCount===0;
+    },
+    metrics(inst){
+      const {sim,state}=inst;
+      return{
+        'Max drift':state.maxDrift.toFixed(2)+'px',
+        'Max yaw':(state.maxYaw*180/Math.PI).toFixed(2)+' deg',
+        'Overlap':state.everOverlap?'YES':'NO',
+        'Maneuvers':String(sim.maneuverTriggerCount)
+      };
+    }
+  },
+  {
+    id:'G',
+    name:'1L baseline throughput',
+    proof:'Single-lane baseline. Must still finish cleanly with no false traffic handling.',
+    w:220,h:760,maxTicks:2000,seed:21,
+    build(){
+      return{sim:createStandardSim({lanes:1,cars:10,split:100,w:this.w,h:this.h,seed:this.seed}),state:{}};
+    },
+    update(inst){
+      inst.sim.tick(FIXED_DT,{v0:window.TrafficCore.V0_DEF});
+      return inst.sim.finished||inst.tick>=this.maxTicks;
+    },
+    verdict(inst){
+      const sim=inst.sim;
+      return sim.finished&&sim.satCount===0&&sim.maneuverTriggerCount===0;
+    },
+    metrics(inst){
+      const sim=inst.sim;
+      return{
+        'Done':sim.cars.filter(c=>c.done).length+'/10',
+        'Time':sim.timerSec.toFixed(2)+'s',
+        'SAT':String(sim.satCount),
+        'Maneuvers':String(sim.maneuverTriggerCount)
+      };
+    }
+  },
+  {
+    id:'H',
+    name:'2L same-target throughput',
+    proof:'Two-lane same-target flow should stay stable and beat the 1L baseline by the expected margin.',
+    w:220,h:760,maxTicks:3000,seed:31,
+    build(){
+      const baseline=runHidden(1,10,100,this.w,this.h,this.seed,2000).timerSec;
+      return{sim:createStandardSim({lanes:2,cars:10,split:100,w:this.w,h:this.h,seed:this.seed}),state:{targetTime:baseline/2*1.15}};
+    },
+    update(inst){
+      inst.sim.tick(FIXED_DT,{v0:window.TrafficCore.V0_DEF});
+      return inst.sim.finished||inst.tick>=this.maxTicks;
+    },
+    verdict(inst){
+      const sim=inst.sim;
+      return sim.finished&&sim.satCount===0&&sim.maneuverTriggerCount===0&&sim.yieldEntryCount===0&&sim.holdExitEntryCount===0&&sim.batchEntryCount===0&&sim.timerSec<=inst.state.targetTime;
+    },
+    metrics(inst){
+      const sim=inst.sim;
+      return{
+        'Done':sim.cars.filter(c=>c.done).length+'/10',
+        'Time':sim.timerSec.toFixed(2)+'s',
+        'Target max':inst.state.targetTime.toFixed(2)+'s',
+        'Modes':`${sim.yieldEntryCount}/${sim.holdExitEntryCount}/${sim.batchEntryCount}`
+      };
+    }
+  },
+  {
+    id:'I',
+    name:'3L same-target throughput',
+    proof:'Three-lane same-target flow should stay stable and beat the 1L baseline by the expected margin.',
+    w:220,h:760,maxTicks:3000,seed:41,
+    build(){
+      const baseline=runHidden(1,10,100,this.w,this.h,this.seed,2000).timerSec;
+      return{sim:createStandardSim({lanes:3,cars:10,split:100,w:this.w,h:this.h,seed:this.seed}),state:{targetTime:baseline/3*1.15}};
+    },
+    update(inst){
+      inst.sim.tick(FIXED_DT,{v0:window.TrafficCore.V0_DEF});
+      return inst.sim.finished||inst.tick>=this.maxTicks;
+    },
+    verdict(inst){
+      const sim=inst.sim;
+      return sim.finished&&sim.satCount===0&&sim.maneuverTriggerCount===0&&sim.yieldEntryCount===0&&sim.holdExitEntryCount===0&&sim.batchEntryCount===0&&sim.timerSec<=inst.state.targetTime;
+    },
+    metrics(inst){
+      const sim=inst.sim;
+      return{
+        'Done':sim.cars.filter(c=>c.done).length+'/10',
+        'Time':sim.timerSec.toFixed(2)+'s',
+        'Target max':inst.state.targetTime.toFixed(2)+'s',
+        'Modes':`${sim.yieldEntryCount}/${sim.holdExitEntryCount}/${sim.batchEntryCount}`
+      };
+    }
+  },
+  {
+    id:'J',
+    name:'Fork approach lane hold',
+    proof:'Cars in adjacent lanes must stay centered and parallel while approaching the fork, before branch split.',
+    w:220,h:760,maxTicks:90,seed:51,
+    build(){
+      const sim=createCustomStraightSim({
+        lanes:2,w:this.w,h:this.h,seed:this.seed,target:'left',
+        cars:[
+          {lane:0,y:simForkStart(this.h,0)},
+          {lane:1,y:simForkStart(this.h,1)}
+        ]
+      });
+      const laneCenters=sim.cars.map(c=>sim.road.laneX(c.lane));
+      return{sim,state:{laneCenters,maxDrift:0,maxYaw:0,everOverlap:false}};
+    },
+    update(inst){
+      const {sim,state}=inst;
+      sim.tick(FIXED_DT,{v0:window.TrafficCore.V0_DEF});
+      sim.cars.forEach((car,i)=>{
+        if(car.seg!=='main')return;
+        state.maxDrift=Math.max(state.maxDrift,Math.abs(car.x-state.laneCenters[i]));
+        state.maxYaw=Math.max(state.maxYaw,Math.abs(car.th-(-Math.PI/2)));
+      });
+      state.everOverlap=satOverlap(sim.cars[0],sim.cars[1])||state.everOverlap;
+      return sim.cars.some(c=>c.seg!=='main')||inst.tick>=this.maxTicks;
+    },
+    verdict(inst){
+      const {sim,state}=inst;
+      return state.maxDrift<1.0&&state.maxYaw<0.08&&!state.everOverlap&&sim.maneuverTriggerCount===0;
+    },
+    metrics(inst){
+      const {sim,state}=inst;
+      return{
+        'Max drift':state.maxDrift.toFixed(2)+'px',
+        'Max yaw':(state.maxYaw*180/Math.PI).toFixed(2)+' deg',
+        'Overlap':state.everOverlap?'YES':'NO',
+        'Fork entered':sim.cars.some(c=>c.seg!=='main')?'YES':'NO'
+      };
+    }
+  }
+];
+
+function simForkStart(h,lane){
+  return h*0.50+140+lane*8;
+}
+
+const instances=[];
+let raf=null;
+
+function makeCard(def){
+  const card=document.createElement('div');
+  card.className='test';
+  card.innerHTML=`
+    <div class="test-hdr">
+      <div class="title">
+        <h3>${def.id}: ${def.name}</h3>
+        <div class="proof">${def.proof}</div>
+      </div>
+      <span class="badge wait" id="badge-${def.id}">WAIT</span>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv-${def.id}"></canvas></div>
+    <div class="panel-ctrls">
+      <button id="play-${def.id}">Play</button>
+      <button id="reset-${def.id}">Reset</button>
+    </div>
+    <div class="metrics" id="metrics-${def.id}"></div>
+    <div class="status" id="status-${def.id}">Not started.</div>
+  `;
+  return card;
+}
+
+function mountTests(){
+  const root=document.getElementById('tests');
+  root.innerHTML='';
+  instances.length=0;
+  for(const def of testDefs){
+    const card=makeCard(def);
+    root.appendChild(card);
+    const cv=card.querySelector('canvas');
+    const rect=card.querySelector('.canvas-wrap').getBoundingClientRect();
+    const dpr=devicePixelRatio||1;
+    cv.width=rect.width*dpr;
+    cv.height=rect.height*dpr;
+    cv.getContext('2d').scale(dpr,dpr);
+    const built=def.build();
+    const inst={def,card,cv,sim:built.sim,state:built.state||{},ren:new Ren(cv,built.sim),tick:0,running:false,done:false,passed:null};
+    instances.push(inst);
+    card.querySelector(`#play-${def.id}`).onclick=()=>toggleTest(inst);
+    card.querySelector(`#reset-${def.id}`).onclick=()=>resetTest(inst);
+    updateCard(inst);
+  }
+}
+
+function resetTest(inst){
+  const rebuilt=inst.def.build();
+  inst.sim=rebuilt.sim;
+  inst.state=rebuilt.state||{};
+  inst.ren=new Ren(inst.cv,inst.sim);
+  inst.tick=0;
+  inst.running=false;
+  inst.done=false;
+  inst.passed=null;
+  setBadge(inst,'wait','WAIT');
+  inst.card.querySelector(`#play-${inst.def.id}`).textContent='Play';
+  inst.card.querySelector(`#status-${inst.def.id}`).textContent='Not started.';
+  updateCard(inst);
+}
+
+function toggleTest(inst){
+  if(inst.done)return;
+  if(!inst.sim.started)inst.sim.start();
+  inst.running=!inst.running;
+  inst.card.querySelector(`#play-${inst.def.id}`).textContent=inst.running?'Pause':'Play';
+  ensureLoop();
+}
+
+function setBadge(inst,kind,text){
+  const el=inst.card.querySelector(`#badge-${inst.def.id}`);
+  el.className=`badge ${kind}`;
+  el.textContent=text;
+}
+
+function updateCard(inst){
+  inst.ren.draw();
+  const metrics=inst.def.metrics(inst);
+  inst.card.querySelector(`#metrics-${inst.def.id}`).innerHTML=Object.entries(metrics).map(([k,v])=>`<div class="metric"><span class="k">${k}</span>${v}</div>`).join('');
+}
+
+function stepInstance(inst){
+  if(!inst.running||inst.done)return;
+  inst.tick++;
+  const stop=inst.def.update(inst);
+  if(stop){
+    inst.running=false;
+    inst.done=true;
+    inst.passed=inst.def.verdict(inst);
+    setBadge(inst,inst.passed?'pass':'fail',inst.passed?'PASS':'FAIL');
+    inst.card.querySelector(`#play-${inst.def.id}`).textContent='Play';
+    inst.card.querySelector(`#status-${inst.def.id}`).textContent=inst.passed?'Acceptance gate satisfied.':'Acceptance gate failed.';
+  }else{
+    inst.card.querySelector(`#status-${inst.def.id}`).textContent=`Running tick ${inst.tick}.`;
+  }
+  updateCard(inst);
+}
+
+function loop(){
+  let any=false;
+  for(const inst of instances){
+    if(inst.running&&!inst.done){
+      any=true;
+      stepInstance(inst);
+    }
+  }
+  if(any)raf=requestAnimationFrame(loop);
+  else raf=null;
+}
+
+function ensureLoop(){
+  if(!raf)raf=requestAnimationFrame(loop);
+}
+
+function runAll(){
+  instances.forEach(inst=>{
+    resetTest(inst);
+    inst.sim.start();
+    inst.running=true;
+    inst.card.querySelector(`#play-${inst.def.id}`).textContent='Pause';
+  });
+  ensureLoop();
+}
+
+function pauseAll(){
+  instances.forEach(inst=>{
+    inst.running=false;
+    inst.card.querySelector(`#play-${inst.def.id}`).textContent='Play';
+  });
+}
+
+function resetAll(){
+  instances.forEach(resetTest);
+}
+
+document.getElementById('runAll').onclick=runAll;
+document.getElementById('pauseAll').onclick=pauseAll;
+document.getElementById('resetAll').onclick=resetAll;
+mountTests();
+</script>
+</body>
+</html>
