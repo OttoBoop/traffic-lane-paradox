@@ -574,7 +574,7 @@
         c.blockingKind = blockInfo.kind;
         c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
         const forwardIntent = Math.max(c.speed, c.desSpd || 0);
-        const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit';
+        const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield';
         if (this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done) c.noProgressTicks += dt;
         else c.noProgressTicks = Math.max(0, c.noProgressTicks - dt * 2);
         this.testMetrics.maxNoProgressTicks = Math.max(this.testMetrics.maxNoProgressTicks, c.noProgressTicks);
@@ -587,6 +587,7 @@
           if (c.trafficMode === 'batch') this.batchEntryCount++;
           c._lastTrafficMode = c.trafficMode;
         }
+        c._assignedTrafficMode = c.trafficMode;
 
         if ((c.trafficMode === 'yield' || c.trafficMode === 'hold_exit') && blocker) {
           const dx = blocker.x - c.x, dy = blocker.y - c.y;
@@ -627,6 +628,8 @@
               const fwd = dx * Math.cos(c.th) + dy * Math.sin(c.th);
               const lat = -dx * Math.sin(c.th) + dy * Math.cos(c.th);
               if (fwd < 0 && Math.abs(lat) < 20) {
+                if (o.trafficMode === 'hold_exit') continue;
+                if (this._hasLegalForwardProgressMove(o, active, rd, dt)) continue;
                 o.maneuvering = true;
                 o.trafficMode = 'maneuver';
                 o.maneuverTimer = 0;
@@ -642,14 +645,11 @@
 
         if (c.maneuvering) {
           c.maneuverTimer += dt;
-          let pathClear = true;
-          for (const o of active) {
-            if (o.id === c.id || o.done || !o.maneuvering) continue;
-            const hit = coneCheck(c, o);
-            if (hit && hit.imminent) { pathClear = false; break; }
-          }
-          if (c.progressResumeTicks >= PROGRESS_RESUME_THRESH && c.trafficMode !== 'yield' && c.trafficMode !== 'hold_exit' && pathClear) {
+          const assignedMode = c._assignedTrafficMode || 'free';
+          const pathClear = this._hasLegalForwardProgressMove(c, active, rd, dt);
+          if ((assignedMode === 'hold_exit' || assignedMode === 'free' || assignedMode === 'commit') && pathClear && c.progressResumeTicks >= PROGRESS_RESUME_THRESH) {
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
+            c.trafficMode = assignedMode;
             this._event('maneuver_exit', { carId: c.id });
             let bestKey = '', bestDist = 1e9;
             for (const key of rd.pathKeys) {
@@ -664,6 +664,10 @@
               c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx; c.lastProgress = c.pathIdx * PATH_SP;
               c.lane = parseInt(bestKey);
             }
+          } else if (assignedMode === 'hold_exit' && !pathClear) {
+            c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
+            c.trafficMode = 'hold_exit';
+            this._event('maneuver_exit', { carId: c.id });
           } else {
             c.trafficMode = 'maneuver';
           }
@@ -1000,18 +1004,41 @@
       return !satOverlapMargin(aPose.x, aPose.y, aPose.th, bPose.x, bPose.y, bPose.th, PROJ_MARGIN);
     }
 
+    _canTrailActiveBatch(c, zone, activeCars) {
+      if (!zone.activeBatchId || zone.activeBatchTarget !== c.target || c.seg !== 'main') return false;
+      const ownProgress = this._pathProgress(c);
+      for (const o of activeCars) {
+        if (o.id === c.id || o.done || !zone.batchMembers.includes(o.id)) continue;
+        if (o.target !== c.target || o.seg !== 'main') continue;
+        if (o.pathKey === c.pathKey) {
+          const gap = this._pathProgress(o) - ownProgress;
+          if (gap > CAR_L * 1.4) return true;
+          continue;
+        }
+        if (this._canShareBatch(o, c, 1, this.road, activeCars)) return true;
+      }
+      return false;
+    }
+
+    _batchStillOwnsZone(c, zone) {
+      if (c.done) return false;
+      if (c._insideConflictPrev) return true;
+      const zi = zone.paths.get(c.pathKey);
+      if (zi === undefined) return false;
+      const dp = (zi - c.pathIdx) * PATH_SP;
+      if (c.seg === 'main') return dp >= -zone.radius - CAR_L && dp <= BATCH_APPROACH_DIST;
+      return false;
+    }
+
     _updateBatchScheduler(active, rd) {
       for (const zone of rd.conflictZones) {
         zone.downstreamClearanceByTarget.left = this._downstreamClearance('left', active, rd);
         zone.downstreamClearanceByTarget.right = this._downstreamClearance('right', active, rd);
 
         const activeBatchCars = active.filter(c => zone.batchMembers.includes(c.id) && !c.done);
-        if (activeBatchCars.length > 0 && zone.batchExpireTick > this.ticks) {
-          const stillNear = activeBatchCars.some(c => {
-            const zi = zone.paths.get(c.pathKey);
-            return zi !== undefined && c.pathIdx <= zi + 10;
-          });
-          if (stillNear) continue;
+        if (activeBatchCars.length > 0) {
+          const stillOwning = activeBatchCars.some(c => this._batchStillOwnsZone(c, zone));
+          if (stillOwning) continue;
         }
 
         const waiting = { left: [], right: [] };
@@ -1087,6 +1114,8 @@
         }
         if (isBatchMember) {
           c.trafficMode = 'batch'; c.zoneYielding = false;
+        } else if (nearFork && this._canTrailActiveBatch(c, zone, activeCars)) {
+          c.trafficMode = 'commit'; c.zoneYielding = false;
         } else if (nearFork && targetClear < EXIT_CLEARANCE) {
           c.trafficMode = 'hold_exit'; c.zoneYielding = true;
         } else if (nearFork && zone.activeBatchId !== null) {
@@ -1122,9 +1151,16 @@
     }
 
     _classifyBlocker(c, active, rd, dt) {
-      if (c.maneuvering || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') {
+      if (c.maneuvering) {
         const blocker = this._findPrimaryBlocker(c, active);
-        return { kind: c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch' ? 'conflict' : 'wall', blocker };
+        return { kind: 'wall', blocker };
+      }
+      if (c.trafficMode === 'hold_exit') {
+        return { kind: 'none', blocker: null, gap: null };
+      }
+      if (c.trafficMode === 'yield' || c.trafficMode === 'batch') {
+        const blocker = this._findPrimaryBlocker(c, active);
+        return blocker ? { kind: 'conflict', blocker } : { kind: 'none', blocker: null, gap: null };
       }
       const desiredPose = this._candidatePose(c, Math.max(0, c.desSpd), c.desSt, dt);
       if (this._isPoseOutsideRoad(c, desiredPose, rd)) return { kind: 'wall', blocker: null };
@@ -1139,7 +1175,10 @@
           continue;
         }
         const hit = coneCheck(c, o);
-        if (hit && ((c.target !== o.target) || Math.abs(c.th - o.th) >= 0.5)) return { kind: 'conflict', blocker: o };
+        if (hit && ((c.target !== o.target) || Math.abs(c.th - o.th) >= 0.5)) {
+          if (!hit.imminent && hit.fwd > CONE_IMMED_LEN * 1.5) continue;
+          return { kind: 'conflict', blocker: o };
+        }
       }
       if (follow) return { kind: 'follow', blocker: follow.car, gap: follow.gap };
       if (parallel) return { kind: 'parallel', blocker: parallel };
@@ -1181,6 +1220,26 @@
       return true;
     }
 
+    _hasLegalForwardProgressMove(c, active, rd, dt) {
+      const desiredSpeed = Math.max(c.desSpd || 0, c.speed || 0, 0.18);
+      const desiredSteer = c.desSt || 0;
+      const baseProgress = this._pathProgress(c);
+      const conflictProgress = c._conflictProgress ?? null;
+      const targetClearance = c._targetClearance ?? 1e9;
+      for (const speed of [desiredSpeed, desiredSpeed * 0.75, desiredSpeed * 0.5, desiredSpeed * 0.25]) {
+        if (speed <= 0.05) continue;
+        for (const steer of [desiredSteer, desiredSteer * 0.5, 0]) {
+          const pose = this._candidatePose(c, speed, steer, dt);
+          if (!this._isLegalPose(c, pose, rd, active)) continue;
+          const nextProgress = this._pathProgress(c, pose);
+          const enterConflict = conflictProgress !== null && nextProgress >= conflictProgress - 2;
+          if (enterConflict && c.trafficMode !== 'batch' && targetClearance < EXIT_CLEARANCE) continue;
+          if (nextProgress - baseProgress >= PROGRESS_EPS * 0.5) return true;
+        }
+      }
+      return false;
+    }
+
     _candidateSet(c, trafficContext, dt) {
       const desiredSpeed = trafficContext.desiredSpeed;
       const desiredSteer = trafficContext.desiredSteer;
@@ -1219,7 +1278,7 @@
 
     _scoreCandidate(c, candidate, trafficContext) {
       const progress = this._pathProgress(c, candidate.pose) - trafficContext.baseProgress;
-      let score = progress * (c.trafficMode === 'maneuver' ? 0.5 : 8);
+      let score = progress * (c.trafficMode === 'maneuver' ? (trafficContext.forwardClear ? 12 : 0.5) : 8);
       score -= Math.abs(candidate.steer - trafficContext.desiredSteer) * (c.trafficMode === 'maneuver' ? 0.2 : 0.8);
       score -= Math.abs(candidate.speed - trafficContext.desiredSpeed) * (c.trafficMode === 'maneuver' ? 0.03 : 0.1);
       if (candidate.speed < 0 && c.trafficMode !== 'maneuver') score -= 50;
@@ -1245,10 +1304,12 @@
       }
       if (c.trafficMode === 'maneuver') {
         const lateralMove = (candidate.pose.x - c.x) * c.maneuverPerpDir.x + (candidate.pose.y - c.y) * c.maneuverPerpDir.y;
-        score += lateralMove * 90;
+        score += lateralMove * (trafficContext.forwardClear ? 20 : 90);
         if (lateralMove > 0) score += 1.5;
         if (candidate.speed === 0) score -= 1;
         if (candidate.speed > 0 && progress < PROGRESS_EPS) score -= 1;
+        if (trafficContext.forwardClear && progress >= PROGRESS_EPS * 0.5) score += 8;
+        if (trafficContext.forwardClear && candidate.speed < 0) score -= 8;
       }
       const pq = pathQuery(c.path, candidate.pose.x, candidate.pose.y, c.pathIdx);
       let hErr = pq.ang - candidate.pose.th; while (hErr > Math.PI) hErr -= 2 * Math.PI; while (hErr < -Math.PI) hErr += 2 * Math.PI;
@@ -1302,6 +1363,7 @@
     _chooseTrafficMove(c, dt, rd, active) {
       const blocker = this._findPrimaryBlocker(c, active);
       c.primaryBlockerId = blocker ? blocker.id : null;
+      const forwardClear = c.maneuvering ? this._hasLegalForwardProgressMove(c, active, rd, dt) : false;
       const steerBias = Math.sign(c.desSt) || (c.blinker !== 0 ? c.blinker : 1);
       const steerTargets = [
         c.desSt,
@@ -1330,7 +1392,8 @@
         desiredSpeed: c.desSpd, desiredSteer: c.desSt, targetSteers: steerTargets, blockerSteer,
         baseProgress: this._pathProgress(c), conflictProgress: c._conflictProgress ?? null,
         targetClearance: c._targetClearance ?? 1e9,
-        canEnterConflict: c.trafficMode === 'batch'
+        canEnterConflict: c.trafficMode === 'batch',
+        forwardClear,
       };
       const best = this._chooseBestLegalCandidate(c, trafficContext, dt);
       return { x: best.pose.x, y: best.pose.y, th: best.pose.th, speed: best.speed, steer: best.steer };
@@ -1809,6 +1872,7 @@
         if (cfg.trafficMode !== undefined) car.trafficMode = cfg.trafficMode;
         if (cfg.zoneYielding !== undefined) car.zoneYielding = cfg.zoneYielding;
         if (cfg.noProgressTicks !== undefined) car.noProgressTicks = cfg.noProgressTicks;
+        if (cfg.progressResumeTicks !== undefined) car.progressResumeTicks = cfg.progressResumeTicks;
         sim.cars.push(car);
       });
     }

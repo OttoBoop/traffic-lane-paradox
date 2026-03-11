@@ -1466,6 +1466,205 @@
       },
     },
     {
+      id: "AB",
+      section: "same",
+      family: "known_red",
+      name: "Lower conflicts yield without convoy wobble",
+      proof:
+        "When a same-target left convoy already has the clear path, lower conflicting cars should yield instead of pulling the convoy into yield or maneuver mode.",
+      build() {
+        return {
+          cases: [
+            customCase("2L convoy priority", {
+              lanes: 2,
+              seed: 510,
+              maxTicks: 240,
+              finishBased: true,
+              cars: [
+                { id: 0, pathKey: "1-left", lane: 1, target: "left", pathT: 0.51, mobilTimer: 999, color: "#c48828" },
+                { id: 1, pathKey: "1-left", lane: 1, target: "left", pathT: 0.44, mobilTimer: 999, color: "#d8a35f" },
+                { id: 2, pathKey: "0-right", lane: 0, target: "right", pathT: 0.46, mobilTimer: 999, color: "#2888c4" },
+                { id: 3, pathKey: "0-right", lane: 0, target: "right", pathT: 0.38, mobilTimer: 999, color: "#5aa6d1" },
+              ],
+            }),
+          ],
+          state: { leftBadYield: false, leftBadManeuver: false, rightYield: false },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.leftBadYield = inst.state.leftBadYield || sim.testEvents.some(
+          (event) => event.type === "yield_enter" && (event.carId === 0 || event.carId === 1)
+        );
+        inst.state.leftBadManeuver = inst.state.leftBadManeuver || sim.testEvents.some(
+          (event) => event.type === "maneuver_enter" && (event.carId === 0 || event.carId === 1)
+        );
+        inst.state.rightYield = inst.state.rightYield || sim.testEvents.some(
+          (event) => event.type === "yield_enter" && (event.carId === 2 || event.carId === 3)
+        );
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Left bad yield": inst.state.leftBadYield ? "YES" : "NO",
+          "Left bad maneuver": inst.state.leftBadManeuver ? "YES" : "NO",
+          "Right yielded": inst.state.rightYield ? "YES" : "NO",
+          Modes: `${sim.testMetrics.yieldEnterCount}/${sim.testMetrics.maneuverEnterCount}`,
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const pass =
+          legal(sim) &&
+          inst.state.rightYield &&
+          !inst.state.leftBadYield &&
+          !inst.state.leftBadManeuver &&
+          sim.cars[0].seg === "left" &&
+          sim.cars[1].seg === "left";
+        return { kind: pass ? "pass" : "fail", text: pass ? "PASS" : "FAIL" };
+      },
+    },
+    {
+      id: "AD",
+      section: "mixed",
+      family: "known_red",
+      name: "Maneuver exit ignores side-clear maneuverers",
+      proof:
+        "A car with restored forward progress should exit maneuver mode even if another maneuvering car remains nearby but outside its real blocker corridor.",
+      build() {
+        return {
+          cases: [
+            customCase("2L maneuver exit locality", {
+              lanes: 2,
+              seed: 511,
+              maxTicks: 160,
+              cars: [
+                {
+                  id: 0,
+                  pathKey: "1-left",
+                  lane: 1,
+                  target: "left",
+                  pathT: 0.76,
+                  seg: "left",
+                  dx: 2,
+                  mobilTimer: 999,
+                  maneuvering: true,
+                  trafficMode: "maneuver",
+                  noProgressTicks: 80,
+                  progressResumeTicks: 19,
+                  color: "#c48828",
+                },
+                {
+                  id: 1,
+                  pathKey: "0-left",
+                  lane: 0,
+                  target: "left",
+                  pathT: 0.57,
+                  seg: "main",
+                  dx: 0,
+                  dy: -6,
+                  mobilTimer: 999,
+                  maneuvering: true,
+                  trafficMode: "maneuver",
+                  noProgressTicks: 80,
+                  color: "#8f6a2a",
+                },
+              ],
+            }),
+          ],
+          state: { exitSeen: false, progressSeen: false },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.exitSeen = inst.state.exitSeen || sim.testEvents.some(
+          (event) => event.type === "maneuver_exit" && event.carId === 0
+        );
+        inst.state.progressSeen = inst.state.progressSeen || sim.cars[0].seg === "left" || sim.cars[0].pathIdx > 70;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Exit: inst.state.exitSeen ? "YES" : "NO",
+          Progress: inst.state.progressSeen ? "YES" : "NO",
+          "Car 0 mode": sim.cars[0].trafficMode,
+          "Car 0 maneuver": sim.cars[0].maneuvering ? "YES" : "NO",
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const pass =
+          legal(sim) &&
+          inst.state.progressSeen &&
+          ((inst.state.exitSeen) || (!sim.cars[0].maneuvering && sim.cars[0].trafficMode !== "maneuver"));
+        return { kind: pass ? "pass" : "fail", text: pass ? "PASS" : "FAIL" };
+      },
+    },
+    {
+      id: "AE",
+      section: "mixed",
+      family: "known_red",
+      name: "Batch grant stays stable until clearance",
+      proof:
+        "Once a target gets the fork batch, the scheduler should not flip the grant to the opposite target before the current holder clears the zone.",
+      build() {
+        return {
+          cases: [
+            standardCase("2L priority stability", {
+              lanes: 2,
+              cars: 10,
+              split: 50,
+              seed: 309,
+              maxTicks: 700,
+              stepsPerFrame: 10,
+            }),
+          ],
+          state: { flippedBeforeClear: false, grants: 0 },
+        };
+      },
+      observe(inst) {
+        const events = inst.cases[0].sim.testEvents.filter(
+          (event) => event.type === "batch_grant" || event.type === "conflict_exit"
+        );
+        let currentTarget = null;
+        let cleared = true;
+        let grantCount = 0;
+        let flippedBeforeClear = false;
+        for (const event of events) {
+          if (event.type === "batch_grant") {
+            grantCount++;
+            if (!cleared && currentTarget !== null && event.target !== currentTarget) {
+              flippedBeforeClear = true;
+              break;
+            }
+            currentTarget = event.target;
+            cleared = false;
+          } else if (event.type === "conflict_exit") {
+            cleared = true;
+          }
+        }
+        inst.state.flippedBeforeClear = flippedBeforeClear;
+        inst.state.grants = grantCount;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Grant flips": inst.state.flippedBeforeClear ? "YES" : "NO",
+          Grants: String(inst.state.grants),
+          Yields: String(sim.testMetrics.yieldEnterCount),
+          "Conflict clears":
+            sim.testMetrics.firstConflictClearanceTick === null
+              ? "none"
+              : sim.testMetrics.firstConflictClearanceTick.toFixed(0),
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const pass = legal(sim) && !inst.state.flippedBeforeClear;
+        return { kind: pass ? "pass" : "fail", text: pass ? "PASS" : "FAIL" };
+      },
+    },
+    {
       id: "W",
       section: "mixed",
       family: "diagnostic",
