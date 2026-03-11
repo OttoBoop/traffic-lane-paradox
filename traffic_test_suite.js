@@ -893,6 +893,80 @@
       },
     },
     {
+      id: "AH",
+      section: "mixed",
+      family: "guard_green",
+      name: "Concurrent maneuver cap",
+      proof:
+        "Even under the 3L mixed-traffic jam, no more than 4 cars may be in maneuver mode at the same time.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L maneuver cap", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 307,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Peak active maneuvers": String(sim.testMetrics.maxConcurrentManeuverCount),
+          "Total maneuvers": String(sim.testMetrics.maneuverEnterCount),
+          Done: countDone(sim) + "/40",
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return legal(sim) && sim.testMetrics.maneuverEnterCount > 0 && sim.testMetrics.maxConcurrentManeuverCount <= 4;
+      },
+    },
+    {
+      id: "AI",
+      section: "collision",
+      family: "known_red",
+      name: "No zero-legal follow deadlock",
+      proof:
+        "The mixed 3L jam should not collapse same-lane spacing into near-tailgating and then leave cars with zero legal moves.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L follow deadlock", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 307,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const minGap = sim.testMetrics.minRuntimeSameLaneGap;
+        return {
+          "Min runtime same-lane gap": (minGap === Infinity ? 0 : minGap).toFixed(2) + "px",
+          "Zero-legal stalls": String(sim.testMetrics.plannerIllegalCount),
+          "Max no-progress": sim.testMetrics.maxNoProgressTicks.toFixed(0),
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const minGap = sim.testMetrics.minRuntimeSameLaneGap;
+        return legal(sim) && sim.testMetrics.plannerIllegalCount === 0 && minGap >= 2;
+      },
+    },
+    {
       id: "K",
       section: "collision",
       family: "guard_green",

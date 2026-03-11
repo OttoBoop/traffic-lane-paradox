@@ -32,6 +32,8 @@
   const PROGRESS_RESUME_THRESH = 20;
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
+  const MAX_ACTIVE_MANEUVERS = 4;
+  const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
 
   const RENDER_THEMES = {
     classic: {
@@ -489,7 +491,10 @@
         minBranchRectGap: Infinity,
         maxNoProgressTicks: 0,
         prematureSplitWallContactCount: 0,
-        preSplitInnerBoundarySampleCount: 0
+        preSplitInnerBoundarySampleCount: 0,
+        plannerIllegalCount: 0,
+        minRuntimeSameLaneGap: Infinity,
+        maxConcurrentManeuverCount: 0
       };
     }
 
@@ -507,6 +512,34 @@
       this.testMetrics.maxStarveTicks = this.maxStarveTicks;
       this.testMetrics.lateCommitLaneChangeCount = this.commitOscillationCount;
       this.testMetrics.preSplitInnerBoundarySampleCount = this.road ? this.road.preSplitInnerBoundarySampleCount : 0;
+      this.testMetrics.plannerIllegalCount = this.plannerIllegalCount;
+    }
+
+    _sameLaneRuntimeGap(a, b) {
+      if (a.seg !== b.seg) return Infinity;
+      if (a.seg === 'main') {
+        if (a.lane !== b.lane) return Infinity;
+      } else if (a.pathKey !== b.pathKey) {
+        return Infinity;
+      }
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const fwd = dx * Math.cos(a.th) + dy * Math.sin(a.th);
+      const lat = Math.abs(-dx * Math.sin(a.th) + dy * Math.cos(a.th));
+      if (fwd <= 0 || lat > CAR_W) return Infinity;
+      return fwd - CAR_L;
+    }
+
+    _updateRuntimeSafetyMetrics(active) {
+      let maneuverers = 0;
+      for (const c of active) if (c.maneuvering) maneuverers++;
+      this.testMetrics.maxConcurrentManeuverCount = Math.max(this.testMetrics.maxConcurrentManeuverCount, maneuverers);
+      for (const a of active) {
+        for (const b of active) {
+          if (a.id === b.id || a.done || b.done) continue;
+          const gap = this._sameLaneRuntimeGap(a, b);
+          if (gap !== Infinity) this.testMetrics.minRuntimeSameLaneGap = Math.min(this.testMetrics.minRuntimeSameLaneGap, gap);
+        }
+      }
     }
 
     tick(dt, P) {
@@ -524,6 +557,7 @@
       if (!this.running || this.finished) return;
       this.ticks += dt;
       const rd = this.road, active = this.cars.filter(c => !c.done), mains = active.filter(c => c.seg === 'main');
+      this._updateRuntimeSafetyMetrics(active);
 
       for (const c of active) {
         const pq0 = pathQuery(c.path, c.x, c.y, c.pathIdx);
@@ -565,6 +599,7 @@
       for (const c of mains) c.trafficMode = c.commitUntilFork ? 'commit' : 'free';
       for (const zone of rd.conflictZones) this._assignBatchStates(active, zone, rd);
 
+      let activeManeuverCount = active.filter(c => c.maneuvering).length;
       for (const c of mains) {
         if (c.fixed) {
           c.desSpd = 0; c.desSt = 0; c.speed = 0; c.steer = 0;
@@ -616,10 +651,13 @@
           c.maneuverPerpDir = { x: Math.cos(perpAngle) * sign, y: Math.sin(perpAngle) * sign };
         }
 
-        if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= NO_PROGRESS_THRESH && c.trafficMode !== 'batch' && !c.done) {
+        const canExitManeuverNow = this._hasLegalForwardProgressMove(c, active, rd, dt);
+        const canEnterManeuver = activeManeuverCount < MAX_ACTIVE_MANEUVERS;
+        if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= NO_PROGRESS_THRESH && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
           c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
           c.plannerMode = 'traffic';
           this.maneuverTriggerCount++;
+          activeManeuverCount++;
           this.testMetrics.maneuverEnterReasons.progress++;
           if (this.testMetrics.firstManeuverTick === null) this.testMetrics.firstManeuverTick = this.ticks;
           if (this.testMetrics.firstProgressManeuverTick === null) this.testMetrics.firstProgressManeuverTick = this.ticks;
@@ -636,11 +674,13 @@
               if (fwd < 0 && Math.abs(lat) < 20) {
                 if (o.trafficMode === 'hold_exit') continue;
                 if (this._hasLegalForwardProgressMove(o, active, rd, dt)) continue;
+                if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) continue;
                 o.maneuvering = true;
                 o.trafficMode = 'maneuver';
                 o.maneuverTimer = 0;
                 o.progressResumeTicks = 0;
                 o.plannerMode = 'traffic';
+                activeManeuverCount++;
                 const distToCenter = rd.cx - o.x;
                 o.maneuverPerpDir = distToCenter === 0 ? { x: 1, y: 0 } : { x: Math.sign(distToCenter), y: 0 };
                 this._event('maneuver_enter', { carId: o.id, reason: 'cascade' });
@@ -652,10 +692,11 @@
         if (c.maneuvering) {
           c.maneuverTimer += dt;
           const assignedMode = c._assignedTrafficMode || 'free';
-          const pathClear = this._hasLegalForwardProgressMove(c, active, rd, dt);
-          if ((assignedMode === 'hold_exit' || assignedMode === 'free' || assignedMode === 'commit') && pathClear && c.progressResumeTicks >= PROGRESS_RESUME_THRESH) {
+          const pathClear = canExitManeuverNow;
+          if (assignedMode !== 'batch' && pathClear) {
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
             c.trafficMode = assignedMode;
+            activeManeuverCount = Math.max(0, activeManeuverCount - 1);
             this._event('maneuver_exit', { carId: c.id });
             let bestKey = '', bestDist = 1e9;
             for (const key of rd.pathKeys) {
@@ -673,6 +714,7 @@
           } else if (assignedMode === 'hold_exit' && !pathClear) {
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
             c.trafficMode = 'hold_exit';
+            activeManeuverCount = Math.max(0, activeManeuverCount - 1);
             this._event('maneuver_exit', { carId: c.id });
           } else {
             c.trafficMode = 'maneuver';
@@ -1223,6 +1265,11 @@
     _isLegalPose(c, pose, rd, active, margin = PROJ_MARGIN) {
       if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
       if (this._poseOverlapsCars(c, pose, active, margin)) return false;
+      for (const o of active) {
+        if (o.id === c.id || o.done) continue;
+        const gap = this._sameLaneRuntimeGap({ ...c, x: pose.x, y: pose.y, th: pose.th }, o);
+        if (gap !== Infinity && gap < HARD_FOLLOW_GAP) return false;
+      }
       return true;
     }
 
@@ -1361,7 +1408,6 @@
       }
       if (legalCount === 0) {
         this.plannerIllegalCount++;
-        if (c.maneuvering) console.log(`MANEUVER BLOCKED: car ${c.id} has 0 legal moves even at 0 margin`);
       }
       return { pose: best.pose, speed: best.speed, steer: best.steer };
     }
