@@ -574,7 +574,7 @@
         c.blockingKind = blockInfo.kind;
         c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
         const forwardIntent = Math.max(c.speed, c.desSpd || 0);
-        const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit';
+        const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit';
         if (this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done) c.noProgressTicks += dt;
         else c.noProgressTicks = Math.max(0, c.noProgressTicks - dt * 2);
         this.testMetrics.maxNoProgressTicks = Math.max(this.testMetrics.maxNoProgressTicks, c.noProgressTicks);
@@ -630,7 +630,10 @@
                 o.maneuvering = true;
                 o.trafficMode = 'maneuver';
                 o.maneuverTimer = 0;
+                o.progressResumeTicks = 0;
                 o.plannerMode = 'traffic';
+                const distToCenter = rd.cx - o.x;
+                o.maneuverPerpDir = distToCenter === 0 ? { x: 1, y: 0 } : { x: Math.sign(distToCenter), y: 0 };
                 this._event('maneuver_enter', { carId: o.id, reason: 'cascade' });
               }
             }
@@ -774,7 +777,7 @@
           let steerToPerp = perpAngle - c.th;
           while (steerToPerp > Math.PI) steerToPerp -= 2 * Math.PI;
           while (steerToPerp < -Math.PI) steerToPerp += 2 * Math.PI;
-          const phase = Math.floor(c.maneuverTimer / 20) % 4;
+          const phase = Math.floor(c.maneuverTimer / 12) % 4;
           const perpSteer = Math.max(-MAX_ST, Math.min(MAX_ST, steerToPerp * 0.8));
           if (phase === 0 || phase === 2) {
             c.desSt = phase === 0 ? perpSteer : -perpSteer;
@@ -1207,6 +1210,8 @@
           const rev = -Math.max(speedMag * revMag, REVERSE_SPD);
           for (const steer of trafficContext.targetSteers) addAttempt(rev, steer);
         }
+        addAttempt(Math.max(speedMag * 0.12, 0.12), MAX_ST * 1.5);
+        addAttempt(Math.max(speedMag * 0.12, 0.12), -MAX_ST * 1.5);
       }
       addAttempt(0, desiredSteer);
       return attempts.map(a => ({ speed: a.speed, steer: a.steer, pose: this._candidatePose(c, a.speed, a.steer, dt) }));
@@ -1279,7 +1284,7 @@
       }
       if (legalCount === 0) {
         for (const candidate of candidates) {
-          if (!this._isLegalPose(c, candidate.pose, trafficContext.rd, trafficContext.active, PROJ_MARGIN * 0.5)) continue;
+          if (!this._isLegalPose(c, candidate.pose, trafficContext.rd, trafficContext.active, 0)) continue;
           candidate.enterConflict = trafficContext.conflictProgress !== null && this._pathProgress(c, candidate.pose) >= trafficContext.conflictProgress - 2;
           if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
           legalCount++;
@@ -1517,36 +1522,48 @@
       const churchArmH = Math.min(churchBodyH * 0.44, 18 * m.churchScale);
       const towerW = churchBodyW * 0.58;
 
-      // 1. Base Land (Light Green from sketch)
+      // --- River geometry: constant-width band that never pinches ---
+      const riverHalf = Math.max(50, h * 0.12);
+      const riverTopL = m.bridgeY - riverHalf;   // top edge Y on left
+      const riverBotL = m.bridgeY + riverHalf;   // bottom edge Y on left
+      const riverTopR = rd.forkY - riverHalf * 1.3; // top edge Y on right (wider)
+      const riverBotR = m.bridgeY + riverHalf * 1.6; // bottom edge Y on right (wider)
+
+      // --- Island geometry: derived FROM river bounds so it can never escape ---
+      const islandX = this._clamp(m.islandCx, m.bridgeRightX + 60 * m.houseScale, w - 50 * m.houseScale);
+      const riverTopAtIsland = riverTopR + (riverTopL - riverTopR) * ((w - islandX) / w);
+      const riverBotAtIsland = riverBotR + (riverBotL - riverBotR) * ((w - islandX) / w);
+      const islandY = (riverTopAtIsland + riverBotAtIsland) / 2;
+      const riverWidthAtIsland = riverBotAtIsland - riverTopAtIsland;
+      const islandRx = Math.min(riverWidthAtIsland * 0.38, 55 * m.houseScale);
+      const islandRy = Math.min(riverWidthAtIsland * 0.32, 40 * m.houseScale);
+
+      // 1. Base Land
       ctx.fillStyle = t.land;
       ctx.fillRect(0, 0, w, h);
 
-      // 2. Continuous River (Purple from sketch, flows right->left under bridge)
+      // 2. River — wide horizontal band, constant width under bridge
       ctx.fillStyle = t.water;
       ctx.beginPath();
-      ctx.moveTo(0, h * 0.45);
-      ctx.lineTo(0, h * 0.65);
-      // Flow under bridge, bottom edge
-      ctx.bezierCurveTo(w * 0.2, h * 0.65, m.bridgeLeftX - 10, m.bridgeY + 40, rd.cx, m.bridgeY + 40);
-      // Expand into large mass on right
-      ctx.bezierCurveTo(m.bridgeRightX + 20, m.bridgeY + 40, w * 0.6, h * 0.75, w, h * 0.75);
-      ctx.lineTo(w, rd.forkY - 60 * m.baseScale);
-      // Flow under bridge, top edge
-      ctx.bezierCurveTo(w * 0.7, rd.forkY - 20 * m.baseScale, m.bridgeRightX + 20, m.bridgeY - 30, rd.cx, m.bridgeY - 30);
-      // Return to left edge
-      ctx.bezierCurveTo(m.bridgeLeftX - 20, m.bridgeY - 30, w * 0.2, h * 0.45, 0, h * 0.45);
+      // Top edge: left to right
+      ctx.moveTo(0, riverTopL);
+      ctx.bezierCurveTo(w * 0.25, riverTopL, w * 0.55, riverTopR + 10, w, riverTopR);
+      // Right edge down
+      ctx.lineTo(w, riverBotR);
+      // Bottom edge: right to left
+      ctx.bezierCurveTo(w * 0.55, riverBotR - 10, w * 0.25, riverBotL, 0, riverBotL);
+      ctx.closePath();
       ctx.fill();
 
-      // Deep water core
+      // Deep water core (narrower band inside)
       ctx.fillStyle = t.waterDeep;
+      const deepInset = riverHalf * 0.3;
       ctx.beginPath();
-      ctx.moveTo(0, h * 0.50);
-      ctx.lineTo(0, h * 0.60);
-      ctx.bezierCurveTo(w * 0.2, h * 0.60, m.bridgeLeftX - 10, m.bridgeY + 25, rd.cx, m.bridgeY + 25);
-      ctx.bezierCurveTo(m.bridgeRightX + 15, m.bridgeY + 25, w * 0.6, h * 0.65, w, h * 0.65);
-      ctx.lineTo(w, rd.forkY - 40 * m.baseScale);
-      ctx.bezierCurveTo(w * 0.7, rd.forkY - 10 * m.baseScale, m.bridgeRightX + 15, m.bridgeY - 15, rd.cx, m.bridgeY - 15);
-      ctx.bezierCurveTo(m.bridgeLeftX - 15, m.bridgeY - 15, w * 0.2, h * 0.50, 0, h * 0.50);
+      ctx.moveTo(0, riverTopL + deepInset);
+      ctx.bezierCurveTo(w * 0.25, riverTopL + deepInset, w * 0.55, riverTopR + deepInset + 5, w, riverTopR + deepInset);
+      ctx.lineTo(w, riverBotR - deepInset);
+      ctx.bezierCurveTo(w * 0.55, riverBotR - deepInset - 5, w * 0.25, riverBotL - deepInset, 0, riverBotL - deepInset);
+      ctx.closePath();
       ctx.fill();
 
       // Water highlights
@@ -1554,72 +1571,77 @@
       ctx.lineWidth = Math.max(3 * m.baseScale, 2);
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(w * 0.1, h * 0.52);
-      ctx.bezierCurveTo(w * 0.2, h * 0.52, m.bridgeLeftX - 20, m.bridgeY, m.bridgeLeftX, m.bridgeY);
+      ctx.moveTo(w * 0.05, m.bridgeY - riverHalf * 0.3);
+      ctx.bezierCurveTo(w * 0.25, m.bridgeY - riverHalf * 0.25, w * 0.5, m.bridgeY - riverHalf * 0.5, w * 0.75, rd.forkY - riverHalf * 0.6);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(m.bridgeRightX, m.bridgeY + 10);
-      ctx.bezierCurveTo(m.bridgeRightX + 30, m.bridgeY + 10, w * 0.7, h * 0.6, w * 0.9, h * 0.6);
+      ctx.moveTo(w * 0.15, m.bridgeY + riverHalf * 0.4);
+      ctx.bezierCurveTo(w * 0.35, m.bridgeY + riverHalf * 0.35, w * 0.6, m.bridgeY + riverHalf * 0.7, w * 0.85, m.bridgeY + riverHalf);
       ctx.stroke();
 
-      // 3. Lower Left Mountain (Prominent, from sketch)
+      // 3. Mountain (Bottom-Left) — smooth rounded silhouette
+      const mtnPeakX = w * 0.12;
+      const mtnPeakY = riverBotL - 20 * m.baseScale;
+      const mtnBaseR = w * 0.48;
       ctx.fillStyle = t.mountain;
       ctx.beginPath();
       ctx.moveTo(0, h);
-      ctx.lineTo(w * 0.5, h);
-      ctx.bezierCurveTo(w * 0.4, h - 20 * m.baseScale, m.bridgeLeftX + 10, m.bridgeY + 50 * m.baseScale, m.bridgeLeftX, m.bridgeY + 40 * m.baseScale);
-      ctx.bezierCurveTo(m.bridgeLeftX - 30 * m.baseScale, m.bridgeY + 50 * m.baseScale, w * 0.15, h * 0.68, 0, h * 0.65);
+      ctx.lineTo(mtnBaseR, h);
+      ctx.bezierCurveTo(mtnBaseR - 20 * m.baseScale, h * 0.85, mtnPeakX + 80 * m.baseScale, mtnPeakY + 40 * m.baseScale, mtnPeakX + 40 * m.baseScale, mtnPeakY);
+      ctx.bezierCurveTo(mtnPeakX, mtnPeakY - 15 * m.baseScale, mtnPeakX - 20 * m.baseScale, mtnPeakY + 10 * m.baseScale, 0, mtnPeakY + 30 * m.baseScale);
+      ctx.closePath();
       ctx.fill();
 
+      // Mountain dark layer (shadow side)
       ctx.fillStyle = t.mountainDark;
       ctx.beginPath();
       ctx.moveTo(0, h);
-      ctx.lineTo(w * 0.35, h);
-      ctx.bezierCurveTo(w * 0.3, h - 10 * m.baseScale, m.bridgeLeftX, m.bridgeY + 70 * m.baseScale, m.bridgeLeftX - 10 * m.baseScale, m.bridgeY + 60 * m.baseScale);
-      ctx.bezierCurveTo(m.bridgeLeftX - 40 * m.baseScale, m.bridgeY + 70 * m.baseScale, w * 0.1, h * 0.78, 0, h * 0.75);
+      ctx.lineTo(mtnBaseR * 0.7, h);
+      ctx.bezierCurveTo(mtnBaseR * 0.6, h * 0.9, mtnPeakX + 60 * m.baseScale, mtnPeakY + 60 * m.baseScale, mtnPeakX + 20 * m.baseScale, mtnPeakY + 20 * m.baseScale);
+      ctx.bezierCurveTo(mtnPeakX - 5 * m.baseScale, mtnPeakY + 15 * m.baseScale, 0, mtnPeakY + 50 * m.baseScale, 0, mtnPeakY + 50 * m.baseScale);
+      ctx.closePath();
       ctx.fill();
 
+      // Rock detail
       ctx.fillStyle = t.mountainRock;
       ctx.beginPath();
-      ctx.ellipse(Math.max(20, m.bridgeLeftX - 30 * m.baseScale), m.bridgeY + 70 * m.baseScale, 20 * m.mountainScale, 35 * m.mountainScale, 0.14, 0, Math.PI * 2);
+      ctx.ellipse(mtnPeakX + 25 * m.baseScale, mtnPeakY + 30 * m.baseScale, 18 * m.mountainScale, 30 * m.mountainScale, 0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // 4. Lower Right Shore (Green blob from sketch)
+      // 4. Shore (Bottom-Right) — smooth rounded
+      const shoreTopY = riverBotR + 10 * m.baseScale;
       ctx.fillStyle = t.shore;
       ctx.beginPath();
       ctx.moveTo(w, h);
-      ctx.lineTo(m.bridgeRightX, h);
-      ctx.lineTo(m.bridgeRightX, m.bridgeY + 50 * m.baseScale);
-      ctx.bezierCurveTo(m.bridgeRightX + 40 * m.baseScale, m.bridgeY + 70 * m.baseScale, w * 0.8, h * 0.9, w, h * 0.85);
+      ctx.lineTo(w * 0.45, h);
+      ctx.bezierCurveTo(w * 0.5, h * 0.9, w * 0.65, shoreTopY + 30 * m.baseScale, w * 0.72, shoreTopY);
+      ctx.bezierCurveTo(w * 0.82, shoreTopY - 10 * m.baseScale, w * 0.95, shoreTopY + 15 * m.baseScale, w, shoreTopY + 20 * m.baseScale);
+      ctx.closePath();
       ctx.fill();
 
       ctx.fillStyle = t.shoreDark;
       ctx.beginPath();
       ctx.moveTo(w, h);
-      ctx.lineTo(m.bridgeRightX + 15 * m.baseScale, h);
-      ctx.lineTo(m.bridgeRightX + 15 * m.baseScale, m.bridgeY + 70 * m.baseScale);
-      ctx.bezierCurveTo(m.bridgeRightX + 50 * m.baseScale, m.bridgeY + 90 * m.baseScale, w * 0.9, h * 0.95, w, h * 0.92);
+      ctx.lineTo(w * 0.55, h);
+      ctx.bezierCurveTo(w * 0.6, h * 0.95, w * 0.75, shoreTopY + 40 * m.baseScale, w * 0.82, shoreTopY + 20 * m.baseScale);
+      ctx.bezierCurveTo(w * 0.9, shoreTopY + 10 * m.baseScale, w * 0.97, shoreTopY + 30 * m.baseScale, w, shoreTopY + 35 * m.baseScale);
+      ctx.closePath();
       ctx.fill();
 
-      // 5. Island on the right (Holds house, surrounded by water)
-      const islandX = m.islandCx;
-      const islandY = m.islandCy;
-      const islandRx = Math.max(40, w * 0.15 * m.houseScale);
-      const islandRy = Math.max(50, h * 0.08 * m.houseScale);
-
+      // 5. Island — guaranteed inside river
       ctx.fillStyle = t.island;
       ctx.beginPath();
-      ctx.ellipse(islandX, islandY, islandRx, islandRy, -0.15, 0, Math.PI * 2);
+      ctx.ellipse(islandX, islandY, islandRx, islandRy, -0.12, 0, Math.PI * 2);
       ctx.fill();
 
       // Trees
-      this._treeCluster(islandX, islandY, islandRx * 0.7, islandRy * 0.7, 12, t.forest, t.forestAlt);
-      this._treeCluster(Math.max(20, m.bridgeLeftX - 40 * m.mountainScale), m.bridgeY + 100 * m.mountainScale, 30 * m.mountainScale, 40 * m.mountainScale, 15, t.forest, t.forestAlt);
-      this._treeCluster(m.bridgeRightX + 40 * m.baseScale, h - 30 * m.baseScale, 20 * m.baseScale, 20 * m.baseScale, 8, t.forest, t.forestAlt);
+      this._treeCluster(islandX, islandY, islandRx * 0.6, islandRy * 0.6, 10, t.forest, t.forestAlt);
+      this._treeCluster(mtnPeakX + 30 * m.baseScale, mtnPeakY + 50 * m.baseScale, 25 * m.mountainScale, 30 * m.mountainScale, 12, t.forest, t.forestAlt);
+      this._treeCluster(w * 0.75, shoreTopY + 30 * m.baseScale, 18 * m.baseScale, 15 * m.baseScale, 8, t.forest, t.forestAlt);
 
       // 6. House on island
       ctx.save();
-      ctx.translate(islandX - 5 * m.houseScale, islandY - 5 * m.houseScale);
+      ctx.translate(islandX, islandY - 3 * m.houseScale);
       ctx.rotate(-0.1);
       ctx.fillStyle = t.house;
       ctx.beginPath();
@@ -1629,27 +1651,14 @@
       ctx.beginPath();
       this._roundRectPath(-houseW * 0.58, -houseH * 0.66, houseW * 1.16, houseH * 0.42, 2 * m.houseScale);
       ctx.fill();
-      ctx.translate(houseW, 5 * m.houseScale);
-      ctx.rotate(0.1);
+      ctx.translate(houseW * 0.8, 8 * m.houseScale);
       ctx.fillStyle = t.pool;
       ctx.beginPath();
       this._roundRectPath(-poolW / 2, -poolH / 2, poolW, poolH, 3 * m.houseScale);
       ctx.fill();
       ctx.restore();
 
-      // 7. Church (Centrally above the fork in top wedge)
-      ctx.fillStyle = t.landWarm;
-      ctx.beginPath();
-      ctx.ellipse(m.wedgeCenterX, m.churchHaloY, Math.max(40 * m.baseScale, m.wedgeWidth * 0.35), Math.max(20 * m.baseScale, m.wedgeWidth * 0.15), 0, 0, Math.PI * 2);
-      ctx.fill();
-      this._treeCluster(m.wedgeCenterX - 30 * m.baseScale, m.churchHaloY, 15 * m.baseScale, 10 * m.baseScale, 6, t.forest, t.forestAlt);
-      this._treeCluster(m.wedgeCenterX + 30 * m.baseScale, m.churchHaloY, 15 * m.baseScale, 10 * m.baseScale, 6, t.forest, t.forestAlt);
-
-      ctx.fillStyle = 'rgba(243, 236, 221, 0.42)';
-      ctx.beginPath();
-      ctx.ellipse(m.wedgeCenterX, m.churchY, Math.max(25 * m.churchScale, m.wedgeWidth * 0.18), Math.max(15 * m.churchScale, m.wedgeWidth * 0.10), 0, 0, Math.PI * 2);
-      ctx.fill();
-
+      // 7. Church — no sand halos, sits directly on land
       ctx.save();
       ctx.translate(m.wedgeCenterX, m.churchY);
       ctx.fillStyle = t.church;
@@ -1673,6 +1682,9 @@
       ctx.fillRect(-1.5 * m.churchScale, -churchBodyH * 0.92, 3 * m.churchScale, 16 * m.churchScale);
       ctx.fillRect(-8 * m.churchScale, -churchBodyH * 0.78, 16 * m.churchScale, 2.6 * m.churchScale);
       ctx.restore();
+      // Tree flanks around church
+      this._treeCluster(m.wedgeCenterX - 28 * m.baseScale, m.churchY + 10 * m.baseScale, 12 * m.baseScale, 8 * m.baseScale, 5, t.forest, t.forestAlt);
+      this._treeCluster(m.wedgeCenterX + 28 * m.baseScale, m.churchY + 10 * m.baseScale, 12 * m.baseScale, 8 * m.baseScale, 5, t.forest, t.forestAlt);
     }
     _road(rd, h) {
       const ctx = this.ctx, hw = rd.halfW();
