@@ -781,6 +781,118 @@
       },
     },
     {
+      id: "AF",
+      section: "same",
+      family: "known_red",
+      name: "1L straight path hold",
+      proof:
+        "A single 1-lane car on a clear road should track the straight main-road centerline without visible wobble before the fork.",
+      build() {
+        const caseRecord = customCase("1L straight hold", {
+          lanes: 1,
+          seed: 703,
+          maxTicks: 220,
+          cars: [{ id: 0, lane: 0, target: "left", y: 640 }],
+        });
+        return {
+          cases: [caseRecord],
+          state: {
+            center: caseRecord.sim.road.laneX(0),
+            maxDrift: 0,
+            maxYaw: 0,
+          },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        const car = sim.cars[0];
+        if (car.done || car.seg !== "main") return;
+        inst.state.maxDrift = Math.max(inst.state.maxDrift, Math.abs(car.x - inst.state.center));
+        inst.state.maxYaw = Math.max(inst.state.maxYaw, Math.abs(car.th + Math.PI / 2));
+      },
+      metrics(inst) {
+        return {
+          "Max drift": inst.state.maxDrift.toFixed(2) + "px",
+          "Max yaw": ((inst.state.maxYaw * 180) / Math.PI).toFixed(2) + " deg",
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const pass =
+          sim.finished &&
+          legal(sim) &&
+          sim.testMetrics.yieldEnterCount === 0 &&
+          sim.testMetrics.maneuverEnterCount === 0 &&
+          inst.state.maxDrift < 0.45 &&
+          inst.state.maxYaw < 0.02;
+        return { kind: pass ? "pass" : "fail", text: pass ? "PASS" : "FAIL" };
+      },
+    },
+    {
+      id: "AG",
+      section: "same",
+      family: "known_red",
+      name: "Spawn starts with safe spacing",
+      proof:
+        "Initial spawn should already respect safe same-lane headway and should not place the front row of every lane at the exact same depth.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L spawn audit", {
+              lanes: 3,
+              cars: 12,
+              split: 50,
+              seed: 704,
+              maxTicks: 1,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const lanes = new Map();
+        for (const car of sim.cars) {
+          if (!lanes.has(car.lane)) lanes.set(car.lane, []);
+          lanes.get(car.lane).push(car);
+        }
+        let minSameLaneGap = Infinity;
+        const firstRow = [];
+        for (const cars of lanes.values()) {
+          cars.sort((a, b) => a.y - b.y);
+          if (cars.length) firstRow.push(cars[0].y);
+          for (let i = 1; i < cars.length; i++) {
+            minSameLaneGap = Math.min(minSameLaneGap, cars[i].y - cars[i - 1].y - CAR_L);
+          }
+        }
+        const firstRowSpread = firstRow.length ? Math.max(...firstRow) - Math.min(...firstRow) : 0;
+        return {
+          "Min same-lane gap": (minSameLaneGap === Infinity ? 0 : minSameLaneGap).toFixed(2) + "px",
+          "First-row spread": firstRowSpread.toFixed(2) + "px",
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const lanes = new Map();
+        for (const car of sim.cars) {
+          if (!lanes.has(car.lane)) lanes.set(car.lane, []);
+          lanes.get(car.lane).push(car);
+        }
+        let minSameLaneGap = Infinity;
+        const firstRow = [];
+        for (const cars of lanes.values()) {
+          cars.sort((a, b) => a.y - b.y);
+          if (cars.length) firstRow.push(cars[0].y);
+          for (let i = 1; i < cars.length; i++) {
+            minSameLaneGap = Math.min(minSameLaneGap, cars[i].y - cars[i - 1].y - CAR_L);
+          }
+        }
+        const firstRowSpread = firstRow.length ? Math.max(...firstRow) - Math.min(...firstRow) : 0;
+        const pass = minSameLaneGap >= CAR_L * 1.5 && firstRowSpread >= CAR_L * 0.5;
+        return { kind: pass ? "pass" : "fail", text: pass ? "PASS" : "FAIL" };
+      },
+    },
+    {
       id: "K",
       section: "collision",
       family: "guard_green",

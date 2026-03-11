@@ -11,9 +11,10 @@
   const CONE_MARGIN = 2;
   const REVERSE_SPD = 0.6, REVERSE_STUCK_THRESH = 80;
   const BLINKER_MIN = 20, BLINKER_TIMEOUT = 120;
-  const SPAWN_SPACING = CAR_L + IDM_S0 + 8;
   const MOBIL_SAFE_GAP = CAR_L * 1.5;
   const MOBIL_MANEUVER_GAP = CAR_L * 0.5;
+  const SPAWN_CLEAR_GAP = Math.max(MOBIL_SAFE_GAP, IDM_S0 + 8);
+  const SPAWN_SPACING = CAR_L + SPAWN_CLEAR_GAP;
   const PROJ_MARGIN = 2;
   const PROJ_BROAD_PHASE = 60;
   const INTERSECT_WIDEN = 1.3;
@@ -437,8 +438,13 @@
       const tg = []; for (let i = 0; i < n; i++)tg.push(i < nL ? 'left' : 'right');
       for (let i = n - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1));[tg[i], tg[j]] = [tg[j], tg[i]]; }
       const perL = new Array(this.nL).fill(0), rd = this.road;
+      const laneStagger = this.nL > 1 ? SPAWN_SPACING / (this.nL + 1) : 0;
+      const rowPitch = SPAWN_SPACING + laneStagger * Math.max(0, this.nL - 1);
       for (let i = 0; i < n; i++) {
-        const lane = i % this.nL, lx = rd.laneX(lane), yPos = rd.stopY + (perL[lane] + 1) * SPAWN_SPACING;
+        const lane = i % this.nL, lx = rd.laneX(lane);
+        const row = perL[lane];
+        const phase = this.nL > 1 ? lane : 0;
+        const yPos = rd.stopY + SPAWN_SPACING + row * rowPitch + phase * laneStagger;
         const c = new Car(i, lx, yPos, -Math.PI / 2, lane, tg[i], (R() - 0.5));
         c.mobilTimer = Math.floor(R() * 20);
         c.pathKey = lane + '-' + c.target; c.path = rd.fullPaths[c.pathKey];
