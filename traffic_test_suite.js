@@ -1,0 +1,1801 @@
+(function (global) {
+  const TC = global.TrafficCore;
+  if (!TC) {
+    throw new Error("TrafficCore must be loaded before TrafficTestSuite.");
+  }
+
+  const { createScenarioSim, CAR_L, V0_DEF, satOverlap, pathQuery } = TC;
+  const VIEW = { w: 220, h: 760 };
+  const PHONE = { w: 110, h: 700 };
+  const SUITES = [
+    {
+      id: "legacy",
+      title: "Legacy Red Restorations",
+      subtitle:
+        "Road-based replacements for the earlier A-E suite. These preserve what the old tests were trying to discover.",
+    },
+    {
+      id: "same",
+      title: "Same-Target Guards",
+      subtitle:
+        "Current lane-hold and same-direction throughput guards. These should stay green unless nominal flow regresses.",
+    },
+    {
+      id: "collision",
+      title: "Collision / Constraint Regressions",
+      subtitle:
+        "Road-based equivalents of the older collision harness: rear-end safety, merge safety, fork conflicts, queue squeeze, and dt spikes.",
+    },
+    {
+      id: "mixed",
+      title: "50/50 Mixed-Traffic Reds",
+      subtitle:
+        "Visual cards for the currently known mixed-flow failures from the main plan: paradox, completion, maneuvering, starvation, merge safety, and stress.",
+    },
+  ];
+
+  function createHidden(spec) {
+    const sim = createScenarioSim(spec);
+    sim.start();
+    for (let i = 0; i < (spec.maxTicks || 2000) && !sim.finished; i++) {
+      sim.tick(spec.dt || 1, { v0: V0_DEF });
+    }
+    return sim;
+  }
+
+  function standardCase(label, options) {
+    return {
+      label,
+      sim: createScenarioSim({
+        lanes: options.lanes,
+        nCars: options.cars,
+        splitPct: options.split,
+        w: options.w || VIEW.w,
+        h: options.h || VIEW.h,
+        seed: options.seed,
+        dt: options.dt || 1,
+        maxTicks: options.maxTicks,
+      }),
+      dt: options.dt || 1,
+      maxTicks: options.maxTicks || 2000,
+      finishBased: options.finishBased !== false,
+      stepsPerFrame: options.stepsPerFrame,
+    };
+  }
+
+  function customCase(label, options) {
+    return {
+      label,
+      sim: createScenarioSim({
+        lanes: options.lanes,
+        w: options.w || VIEW.w,
+        h: options.h || VIEW.h,
+        seed: options.seed,
+        cars: options.cars,
+        dt: options.dt || 1,
+        maxTicks: options.maxTicks,
+      }),
+      dt: options.dt || 1,
+      maxTicks: options.maxTicks || 240,
+      finishBased: options.finishBased === true,
+      stepsPerFrame: options.stepsPerFrame,
+    };
+  }
+
+  function legal(sim) {
+    return sim.testMetrics.overlapCount === 0 && sim.testMetrics.wallEscapeCount === 0;
+  }
+
+  function countDone(sim) {
+    return sim.testMetrics.doneCount;
+  }
+
+  function timeStr(caseRecord) {
+    return caseRecord.sim.timerSec.toFixed(2) + "s";
+  }
+
+  function finishOrder(cases) {
+    return cases
+      .map((caseRecord) => ({
+        label: caseRecord.label,
+        finished: caseRecord.sim.finished,
+        time: caseRecord.sim.timerSec,
+      }))
+      .sort((a, b) =>
+        a.finished === b.finished ? a.time - b.time : a.finished ? -1 : 1
+      )
+      .map((caseRecord) =>
+        `${caseRecord.label}:${caseRecord.finished ? caseRecord.time.toFixed(2) + "s" : "DNF"}`
+      )
+      .join(" | ");
+  }
+
+  function lastEvents(cases) {
+    const out = [];
+    cases.forEach((caseRecord) =>
+      caseRecord.sim.testEvents
+        .slice(-2)
+        .forEach((event) => out.push(`${caseRecord.label} ${event.type}`))
+    );
+    return out.slice(-4).join(" | ") || "No events yet.";
+  }
+
+  function autoSteps(caseRecord) {
+    return Math.max(1, Math.min(40, Math.ceil(caseRecord.maxTicks / 700)));
+  }
+
+  function wholePathErr(car) {
+    const pq = pathQuery(car.path, car.x, car.y, car.pathIdx);
+    return Math.hypot(car.x - pq.px, car.y - pq.py);
+  }
+
+  function conflictCars() {
+    return [
+      {
+        id: 0,
+        pathKey: "0-right",
+        lane: 0,
+        target: "right",
+        pathT: 0.56,
+        mobilTimer: 999,
+        color: "#2888c4",
+      },
+      {
+        id: 1,
+        pathKey: "1-left",
+        lane: 1,
+        target: "left",
+        pathT: 0.56,
+        mobilTimer: 999,
+        color: "#c48828",
+      },
+    ];
+  }
+
+  function blockedExitConflictCars() {
+    return [
+      {
+        id: 100,
+        pathKey: "1-left",
+        lane: 1,
+        target: "left",
+        pathT: 0.80,
+        seg: "left",
+        fixed: true,
+        color: "#555",
+      },
+      {
+        id: 101,
+        pathKey: "1-left",
+        lane: 1,
+        target: "left",
+        pathT: 0.88,
+        seg: "left",
+        fixed: true,
+        color: "#444",
+      },
+      {
+        id: 0,
+        pathKey: "1-left",
+        lane: 1,
+        target: "left",
+        pathT: 0.58,
+        mobilTimer: 999,
+        color: "#c48828",
+      },
+      {
+        id: 1,
+        pathKey: "0-right",
+        lane: 0,
+        target: "right",
+        pathT: 0.57,
+        mobilTimer: 999,
+        color: "#2888c4",
+      },
+    ];
+  }
+
+  function sequentialForkCars(lanes, leftCount, rightCount) {
+    const cars = [];
+    const total = leftCount + rightCount;
+    for (let i = 0; i < total; i++) {
+      cars.push({
+        id: i,
+        lane: i % lanes,
+        target: i < leftCount ? "left" : "right",
+        mobilTimer: 999,
+      });
+    }
+    return cars;
+  }
+
+  function leftBranchBlockers(lanes) {
+    const cars = [];
+    for (let lane = 0; lane < Math.max(1, Math.min(lanes, 2)); lane++) {
+      cars.push(
+        {
+          id: 100 + lane * 2,
+          lane,
+          target: "left",
+          pathKey: `${lane}-left`,
+          pathT: 0.10 + lane * 0.03,
+          seg: "left",
+          fixed: true,
+          color: "#555",
+        },
+        {
+          id: 101 + lane * 2,
+          lane,
+          target: "left",
+          pathKey: `${lane}-left`,
+          pathT: 0.20 + lane * 0.03,
+          seg: "left",
+          fixed: true,
+          color: "#444",
+        }
+      );
+    }
+    return cars;
+  }
+
+  function conflictMetrics(sim) {
+    const enters = sim.testEvents
+      .filter((event) => event.type === "conflict_enter")
+      .map((event) => `${event.carId}${event.legal ? "" : "!"}`);
+    return enters.join(" -> ") || "none";
+  }
+
+  function normalizeOutcome(result) {
+    if (typeof result === "boolean") {
+      return { kind: result ? "pass" : "fail", text: result ? "PASS" : "FAIL", passed: !!result };
+    }
+    if (typeof result === "string") {
+      return {
+        kind: result.toLowerCase(),
+        text: result.toUpperCase(),
+        passed: result === "pass",
+      };
+    }
+    return {
+      kind: result.kind || "fail",
+      text: result.text || (result.kind || "fail").toUpperCase(),
+      passed: result.kind === "pass",
+      note: result.note || "",
+    };
+  }
+
+  function leftDone(sim) {
+    return sim.cars.some((car) => !car.fixed && car.done && car.target === "left");
+  }
+
+  function rightDone(sim) {
+    return sim.cars.some((car) => !car.fixed && car.done && car.target === "right");
+  }
+
+  let TESTS = [
+    {
+      id: "A",
+      section: "legacy",
+      family: "diagnostic",
+      name: "Blocked progress counter",
+      proof:
+        "Old intent: prove the blocked-car precondition actually accumulates. New road version: one moving car trapped behind a fixed blocker near the fork.",
+      build() {
+        return {
+          cases: [
+            customCase("1L blocked", {
+              lanes: 1,
+              seed: 101,
+              maxTicks: 160,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 505, mobilTimer: 0 },
+                { id: 1, lane: 0, target: "left", y: 455, fixed: true, color: "#666" },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Max no-progress": sim.testMetrics.maxNoProgressTicks.toFixed(0),
+          Overlap: String(sim.testMetrics.overlapCount),
+          Wall: String(sim.testMetrics.wallEscapeCount),
+          Done: String(countDone(sim)),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return sim.testMetrics.maxNoProgressTicks >= 60 && legal(sim);
+      },
+    },
+    {
+      id: "B",
+      section: "legacy",
+      family: "survey_green",
+      name: "Blocked car creates lateral alternative",
+      proof:
+        "Old intent: a blocked car should not freeze if lateral legal space exists. This road version gives partial side clearance beside the blocker.",
+      build() {
+        const caseRecord = customCase("2L partial clearance", {
+          lanes: 2,
+          seed: 102,
+          maxTicks: 220,
+          cars: [
+            { id: 0, lane: 0, target: "left", y: 530, mobilTimer: 0 },
+            { id: 1, lane: 0, target: "left", y: 482, fixed: true, color: "#666" },
+            { id: 2, lane: 1, target: "left", y: 492, fixed: true, color: "#3d5669" },
+            { id: 3, lane: 1, target: "left", y: 580, fixed: true, color: "#3d5669" },
+          ],
+        });
+        return {
+          cases: [caseRecord],
+          state: {
+            startX: caseRecord.sim.cars[0].x,
+            maxShift: 0,
+            targetSpan: caseRecord.sim.road.lw,
+          },
+        };
+      },
+      observe(inst) {
+        const mover = inst.cases[0].sim.cars[0];
+        inst.state.maxShift = Math.max(inst.state.maxShift, Math.abs(mover.x - inst.state.startX));
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Max lateral shift": inst.state.maxShift.toFixed(2) + "px",
+          "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+          "No-progress": sim.testMetrics.maxNoProgressTicks.toFixed(0),
+          Overlap: String(sim.testMetrics.overlapCount),
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const partial =
+          inst.state.maxShift > 4 && inst.state.maxShift < inst.state.targetSpan * 0.8;
+        return {
+          kind: legal(sim) && partial && sim.testMetrics.mergeAcceptCount === 0 ? "pass" : "fail",
+          text:
+            legal(sim) && partial && sim.testMetrics.mergeAcceptCount === 0 ? "PASS" : "FAIL",
+        };
+      },
+    },
+    {
+      id: "C",
+      section: "legacy",
+      family: "known_red",
+      name: "Open-lane bypass progress",
+      proof:
+        "Old intent: an empty adjacent lane should actually be used. This road version leaves lane 1 open and expects real lateral progress or a legal merge.",
+      build() {
+        const caseRecord = customCase("2L open lane", {
+          lanes: 2,
+          seed: 103,
+          maxTicks: 1200,
+          stepsPerFrame: 8,
+          cars: [
+            { id: 0, lane: 0, target: "left", y: 535, mobilTimer: 0 },
+            { id: 1, lane: 0, target: "left", y: 485, fixed: true, color: "#666" },
+          ],
+        });
+        return {
+          cases: [caseRecord],
+          state: {
+            startX: caseRecord.sim.cars[0].x,
+            targetX: caseRecord.sim.road.laneX(1),
+            blockerY: 485,
+            maxShift: 0,
+            firstResolveTick: null,
+            slowTick: 140,
+          },
+        };
+      },
+      observe(inst) {
+        const caseRecord = inst.cases[0];
+        const sim = caseRecord.sim;
+        const mover = sim.cars[0];
+        inst.state.maxShift = Math.max(inst.state.maxShift, Math.abs(mover.x - inst.state.startX));
+        const inLane1 = Math.abs(mover.x - inst.state.targetX) < 1.5;
+        const pastBlocker = mover.y < inst.state.blockerY - CAR_L;
+        const resolved = inLane1 && pastBlocker;
+        if (resolved && inst.state.firstResolveTick === null) {
+          inst.state.firstResolveTick = caseRecord.tick;
+        }
+      },
+      stop(inst) {
+        return inst.state.firstResolveTick !== null || inst.cases.every((caseRecord) => caseRecord.done);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const mover = sim.cars[0];
+        return {
+          "First bypass tick":
+            inst.state.firstResolveTick === null ? "none" : String(inst.state.firstResolveTick),
+          "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+          "Lane 1 dist": Math.abs(mover.x - inst.state.targetX).toFixed(2) + "px",
+          "Blocker clearance": (inst.state.blockerY - mover.y - CAR_L).toFixed(2) + "px",
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        if (!legal(sim) || inst.state.firstResolveTick === null) {
+          return { kind: "fail", text: "FAIL" };
+        }
+        if (inst.state.firstResolveTick <= inst.state.slowTick) {
+          return { kind: "pass", text: "PASS" };
+        }
+        return { kind: "warn", text: "WARN", note: "Bypass happened, but too slowly." };
+      },
+    },
+    {
+      id: "D",
+      section: "legacy",
+      family: "diagnostic",
+      name: "Conflict pair must not hard-deadlock",
+      proof:
+        "Old intent: crossing cars should not freeze forever. Two matched fork entrants must both clear the fork within budget.",
+      build() {
+        return {
+          cases: [
+            customCase("2L real conflict", {
+              lanes: 2,
+              seed: 104,
+              maxTicks: 340,
+              finishBased: true,
+              cars: conflictCars(),
+            }),
+          ],
+          state: { minCenter: Infinity },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        const a = sim.cars[0];
+        const b = sim.cars[1];
+        inst.state.minCenter = Math.min(inst.state.minCenter, Math.hypot(a.x - b.x, a.y - b.y));
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Paths: "0-right x 1-left",
+          Done: countDone(sim) + "/2",
+          "Min center": inst.state.minCenter.toFixed(2),
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          kind: sim.finished && countDone(sim) === 2 && legal(sim) && inst.state.minCenter < 20 ? "pass" : "fail",
+          text:
+            sim.finished && countDone(sim) === 2 && legal(sim) && inst.state.minCenter < 20
+              ? "PASS"
+              : "FAIL",
+        };
+      },
+    },
+    {
+      id: "E",
+      section: "legacy",
+      family: "guard_green",
+      name: "Hard constraint guard",
+      proof:
+        "Old intent: even if traffic handling is wrong, legality must hold. Same geometry as D, judged only on overlap and wall escape.",
+      build() {
+        return {
+          cases: [
+            customCase("2L hard guard", {
+              lanes: 2,
+              seed: 105,
+              maxTicks: 340,
+              cars: conflictCars(),
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Overlap: String(sim.testMetrics.overlapCount),
+          Wall: String(sim.testMetrics.wallEscapeCount),
+          "Illegal conflict": String(sim.testMetrics.illegalConflictEntryCount),
+          Spillback: sim.testMetrics.maxConflictZoneStallTicks.toFixed(0),
+        };
+      },
+      verdict(inst) {
+        return legal(inst.cases[0].sim);
+      },
+    },
+    {
+      id: "F",
+      section: "same",
+      family: "guard_green",
+      name: "Side-by-side lane hold",
+      proof:
+        "Two cars in adjacent lanes, same direction, straight segment. They should stay centered without wobble.",
+      build() {
+        const caseRecord = customCase("2L lane hold", {
+          lanes: 2,
+          seed: 11,
+          maxTicks: 160,
+          cars: [
+            { id: 0, lane: 0, target: "left", y: 640 },
+            { id: 1, lane: 1, target: "left", y: 640 },
+          ],
+        });
+        return {
+          cases: [caseRecord],
+          state: {
+            centers: caseRecord.sim.cars.map((car) => caseRecord.sim.road.laneX(car.lane)),
+            maxDrift: 0,
+            maxYaw: 0,
+            overlap: false,
+          },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        sim.cars.forEach((car, idx) => {
+          if (car.seg !== "main") {
+            return;
+          }
+          inst.state.maxDrift = Math.max(
+            inst.state.maxDrift,
+            Math.abs(car.x - inst.state.centers[idx])
+          );
+          inst.state.maxYaw = Math.max(inst.state.maxYaw, Math.abs(car.th + Math.PI / 2));
+        });
+        inst.state.overlap = inst.state.overlap || satOverlap(sim.cars[0], sim.cars[1]);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Max drift": inst.state.maxDrift.toFixed(2) + "px",
+          "Max yaw": ((inst.state.maxYaw * 180) / Math.PI).toFixed(2) + " deg",
+          Overlap: inst.state.overlap ? "YES" : "NO",
+          Maneuvers: String(sim.testMetrics.maneuverEnterCount),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return (
+          inst.state.maxDrift < 0.75 &&
+          inst.state.maxYaw < 0.03 &&
+          !inst.state.overlap &&
+          sim.testMetrics.maneuverEnterCount === 0
+        );
+      },
+    },
+    {
+      id: "G",
+      section: "same",
+      family: "guard_green",
+      name: "1L baseline throughput",
+      proof: "Single-lane baseline. Must still finish cleanly with no false traffic handling.",
+      build() {
+        return {
+          cases: [
+            standardCase("1L 100% left", {
+              lanes: 1,
+              cars: 10,
+              split: 100,
+              seed: 21,
+              maxTicks: 2400,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Done: countDone(sim) + "/10",
+          Time: timeStr(inst.cases[0]),
+          Overlap: String(sim.testMetrics.overlapCount),
+          Maneuvers: String(sim.testMetrics.maneuverEnterCount),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return sim.finished && legal(sim) && sim.testMetrics.maneuverEnterCount === 0;
+      },
+    },
+    {
+      id: "H",
+      section: "same",
+      family: "known_red",
+      name: "2L same-target throughput",
+      proof:
+        "Two-lane same-target flow should stay stable and beat the 1L baseline by the expected scaling margin.",
+      build() {
+        const baseline = createHidden({
+          lanes: 1,
+          nCars: 10,
+          splitPct: 100,
+          w: VIEW.w,
+          h: VIEW.h,
+          seed: 31,
+          maxTicks: 2400,
+        });
+        return {
+          cases: [
+            standardCase("2L 100% left", {
+              lanes: 2,
+              cars: 10,
+              split: 100,
+              seed: 31,
+              maxTicks: 3600,
+            }),
+          ],
+          state: { target: (baseline.timerSec / 2) * 1.15 },
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Done: countDone(sim) + "/10",
+          Time: timeStr(inst.cases[0]),
+          "Target max": inst.state.target.toFixed(2) + "s",
+          Modes: `${sim.testMetrics.yieldEnterCount}/${sim.testMetrics.holdExitEnterCount}/${sim.batchEntryCount}`,
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return (
+          sim.finished &&
+          legal(sim) &&
+          sim.testMetrics.maneuverEnterCount === 0 &&
+          sim.testMetrics.yieldEnterCount === 0 &&
+          sim.testMetrics.holdExitEnterCount === 0 &&
+          sim.batchEntryCount === 0 &&
+          sim.timerSec <= inst.state.target
+        );
+      },
+    },
+    {
+      id: "I",
+      section: "same",
+      family: "known_red",
+      name: "3L same-target throughput",
+      proof:
+        "Three-lane same-target flow should stay stable and beat the 1L baseline by the expected scaling margin.",
+      build() {
+        const baseline = createHidden({
+          lanes: 1,
+          nCars: 10,
+          splitPct: 100,
+          w: VIEW.w,
+          h: VIEW.h,
+          seed: 41,
+          maxTicks: 2400,
+        });
+        return {
+          cases: [
+            standardCase("3L 100% left", {
+              lanes: 3,
+              cars: 10,
+              split: 100,
+              seed: 41,
+              maxTicks: 3600,
+            }),
+          ],
+          state: { target: (baseline.timerSec / 3) * 1.15 },
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Done: countDone(sim) + "/10",
+          Time: timeStr(inst.cases[0]),
+          "Target max": inst.state.target.toFixed(2) + "s",
+          Modes: `${sim.testMetrics.yieldEnterCount}/${sim.testMetrics.holdExitEnterCount}/${sim.batchEntryCount}`,
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return (
+          sim.finished &&
+          legal(sim) &&
+          sim.testMetrics.maneuverEnterCount === 0 &&
+          sim.testMetrics.yieldEnterCount === 0 &&
+          sim.testMetrics.holdExitEnterCount === 0 &&
+          sim.batchEntryCount === 0 &&
+          sim.timerSec <= inst.state.target
+        );
+      },
+    },
+    {
+      id: "J",
+      section: "same",
+      family: "guard_green",
+      name: "Whole-path lane hold",
+      proof:
+        "Two same-target cars must hold a clean path through the whole route, not just on the straight or early fork approach.",
+      build() {
+        const caseRecord = customCase("2L whole path hold", {
+          lanes: 2,
+          seed: 51,
+          maxTicks: 420,
+          finishBased: true,
+          cars: [
+            { id: 0, lane: 0, target: "left", y: 620 },
+            { id: 1, lane: 1, target: "left", y: 628 },
+          ],
+        });
+        return {
+          cases: [caseRecord],
+          state: { maxPathErr: 0, maxYaw: 0, overlap: false },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        sim.cars.forEach((car) => {
+          if (car.done) {
+            return;
+          }
+          const pq = pathQuery(car.path, car.x, car.y, car.pathIdx);
+          let hd = car.th - pq.ang;
+          while (hd > Math.PI) {
+            hd -= Math.PI * 2;
+          }
+          while (hd < -Math.PI) {
+            hd += Math.PI * 2;
+          }
+          inst.state.maxPathErr = Math.max(inst.state.maxPathErr, wholePathErr(car));
+          inst.state.maxYaw = Math.max(inst.state.maxYaw, Math.abs(hd));
+        });
+        inst.state.overlap = inst.state.overlap || satOverlap(sim.cars[0], sim.cars[1]);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Done: countDone(sim) + "/2",
+          "Max path err": inst.state.maxPathErr.toFixed(2) + "px",
+          "Max yaw": ((inst.state.maxYaw * 180) / Math.PI).toFixed(2) + " deg",
+          Overlap: inst.state.overlap ? "YES" : "NO",
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          kind:
+            sim.finished &&
+              inst.state.maxPathErr < 3.0 &&
+              inst.state.maxYaw < 0.12 &&
+              !inst.state.overlap &&
+              sim.testMetrics.maneuverEnterCount === 0
+              ? "pass"
+              : "fail",
+          text:
+            sim.finished &&
+              inst.state.maxPathErr < 3.0 &&
+              inst.state.maxYaw < 0.12 &&
+              !inst.state.overlap &&
+              sim.testMetrics.maneuverEnterCount === 0
+              ? "PASS"
+              : "FAIL",
+        };
+      },
+    },
+    {
+      id: "K",
+      section: "collision",
+      family: "guard_green",
+      name: "Rear-end queue stop",
+      proof:
+        "Road-based rear-end safety. A follower must not pass through a stopped queue blocker.",
+      build() {
+        return {
+          cases: [
+            customCase("1L rear-end", {
+              lanes: 1,
+              seed: 201,
+              maxTicks: 180,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 510 },
+                { id: 1, lane: 0, target: "left", y: 460, fixed: true, color: "#666" },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Mover y": sim.cars[0].y.toFixed(1),
+          "Blocker y": sim.cars[1].y.toFixed(1),
+          Overlap: String(sim.testMetrics.overlapCount),
+          Wall: String(sim.testMetrics.wallEscapeCount),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return legal(sim) && sim.cars[0].y > sim.cars[1].y;
+      },
+    },
+    {
+      id: "L",
+      section: "collision",
+      family: "known_red",
+      name: "Unsafe merge rejection",
+      proof:
+        "Road-based unsafe merge guard. A merge must not be accepted when the target-lane gap is below 33px.",
+      build() {
+        return {
+          cases: [
+            customCase("2L unsafe gap", {
+              lanes: 2,
+              seed: 202,
+              maxTicks: 220,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 540, mobilTimer: 0 },
+                { id: 1, lane: 0, target: "left", y: 486, fixed: true, color: "#666" },
+                { id: 2, lane: 1, target: "left", y: 504, fixed: true, color: "#3d5669" },
+                { id: 3, lane: 1, target: "left", y: 548, fixed: true, color: "#3d5669" },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Merge attempts": String(sim.testMetrics.mergeAttemptCount),
+          "Unsafe rejects": String(sim.testMetrics.mergeRejectUnsafeCount),
+          "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+          "Visible target gap": (548 - 504 - CAR_L).toFixed(2) + "px",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return legal(sim) && sim.testMetrics.mergeAcceptCount === 0 && sim.testMetrics.mergeRejectUnsafeCount > 0;
+      },
+    },
+    {
+      id: "M",
+      section: "collision",
+      family: "diagnostic",
+      name: "Safe merge acceptance",
+      proof:
+        "Road-based merge liveness. With a legal target-lane gap, a merge should begin instead of freezing.",
+      build() {
+        return {
+          cases: [
+            customCase("2L safe gap", {
+              lanes: 2,
+              seed: 203,
+              maxTicks: 260,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 540, mobilTimer: 0 },
+                { id: 1, lane: 0, target: "left", y: 486, fixed: true, color: "#666" },
+                { id: 2, lane: 1, target: "left", y: 430, fixed: true, color: "#3d5669" },
+                { id: 3, lane: 1, target: "left", y: 654, fixed: true, color: "#3d5669" },
+              ],
+            }),
+          ],
+          state: { firstMergeTick: null, slowTick: 150 },
+        };
+      },
+      observe(inst) {
+        const caseRecord = inst.cases[0];
+        const sim = caseRecord.sim;
+        if (sim.testMetrics.mergeAcceptCount > 0 && inst.state.firstMergeTick === null) {
+          inst.state.firstMergeTick = caseRecord.tick;
+        }
+      },
+      stop(inst) {
+        return inst.state.firstMergeTick !== null || inst.cases.every((caseRecord) => caseRecord.done);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "First merge tick":
+            inst.state.firstMergeTick === null ? "none" : String(inst.state.firstMergeTick),
+          "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+          "Min accepted gap":
+            sim.testMetrics.minAcceptedMergeGap === Infinity
+              ? "INF"
+              : sim.testMetrics.minAcceptedMergeGap.toFixed(2),
+          "Visible target gap": (654 - 430 - CAR_L).toFixed(2) + "px",
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        if (
+          !legal(sim) ||
+          sim.testMetrics.mergeAcceptCount === 0 ||
+          sim.testMetrics.minAcceptedMergeGap < CAR_L * 1.5
+        ) {
+          return { kind: "fail", text: "FAIL" };
+        }
+        if (inst.state.firstMergeTick !== null && inst.state.firstMergeTick <= inst.state.slowTick) {
+          return { kind: "pass", text: "PASS" };
+        }
+        return { kind: "warn", text: "WARN", note: "Merge is legal but too slow." };
+      },
+    },
+    {
+      id: "N",
+      section: "collision",
+      family: "diagnostic",
+      name: "Fork conflict hard-constraint",
+      proof:
+        "Road-based T-bone / diagonal protection. Conflicting fork entrants must stay legal and produce a consistent first conflict entry.",
+      build() {
+        return {
+          cases: [
+            customCase("2L fork guard", {
+              lanes: 2,
+              seed: 204,
+              maxTicks: 280,
+              finishBased: true,
+              cars: conflictCars(),
+            }),
+          ],
+          state: { minCenter: Infinity },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        const a = sim.cars[0];
+        const b = sim.cars[1];
+        inst.state.minCenter = Math.min(inst.state.minCenter, Math.hypot(a.x - b.x, a.y - b.y));
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Paths: "0-right x 1-left",
+          "Min center": inst.state.minCenter.toFixed(2),
+          Overlap: String(sim.testMetrics.overlapCount),
+          Wall: String(sim.testMetrics.wallEscapeCount),
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          kind: legal(sim) && inst.state.minCenter < 20 ? "pass" : "fail",
+          text: legal(sim) && inst.state.minCenter < 20 ? "PASS" : "FAIL",
+        };
+      },
+    },
+    {
+      id: "O",
+      section: "collision",
+      family: "diagnostic",
+      name: "Dense squeeze queue",
+      proof:
+        "Road-based squeeze and pileup regression. A dense fork queue should compress visually without phasing or illegal merges.",
+      build() {
+        return {
+          cases: [
+            customCase("3L squeeze", {
+              lanes: 3,
+              seed: 205,
+              maxTicks: 260,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 520, mobilTimer: 0 },
+                { id: 1, lane: 1, target: "right", y: 515, mobilTimer: 0 },
+                { id: 2, lane: 2, target: "left", y: 510, mobilTimer: 0 },
+                { id: 3, lane: 0, target: "right", y: 470, mobilTimer: 0 },
+                { id: 4, lane: 1, target: "left", y: 465, mobilTimer: 0 },
+                { id: 5, lane: 2, target: "right", y: 460, mobilTimer: 0 },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Overlap: String(sim.testMetrics.overlapCount),
+          Wall: String(sim.testMetrics.wallEscapeCount),
+          "Unsafe rejects": String(sim.testMetrics.mergeRejectUnsafeCount),
+          "Planner illegal": String(sim.plannerIllegalCount),
+        };
+      },
+      verdict(inst) {
+        return legal(inst.cases[0].sim);
+      },
+    },
+    {
+      id: "GEO",
+      section: "collision",
+      family: "guard_green",
+      name: "Fork-edge geometry sync",
+      proof:
+        "Static fork geometry guard. The split wall and branch dividers must begin only after the fork opens by the configured gap, and the shared width model must stay monotonic.",
+      build() {
+        const caseRecord = customCase("3L geometry", { lanes: 3, seed: 208, maxTicks: 1, cars: [] });
+        const road = caseRecord.sim.road;
+        let maxHalf = 0;
+        for (let i = 0; i <= 100; i++) {
+          maxHalf = Math.max(maxHalf, road.branchHalfW("left", i / 100));
+        }
+        return { cases: [caseRecord], state: { maxHalf } };
+      },
+      metrics(inst) {
+        const road = inst.cases[0].sim.road;
+        return {
+          "Base/main/branch": `${road.baseLw.toFixed(1)} / ${road.mainLw.toFixed(1)} / ${road.branchLw.toFixed(1)}`,
+          "Split start": road.splitWallStartT.toFixed(3),
+          "Gap at split": road.splitGapAt(road.splitWallStartT).toFixed(2) + "px",
+          "Pre-split artifacts": String(road.preSplitInnerBoundarySampleCount),
+        };
+      },
+      stop() {
+        return true;
+      },
+      verdict(inst) {
+        const road = inst.cases[0].sim.road;
+        return (
+          road.preSplitInnerBoundarySampleCount === 0 &&
+          Math.abs(road.mainLw - road.baseLw * 1.1) < 0.001 &&
+          Math.abs(road.branchLw - road.baseLw * 1.25) < 0.001 &&
+          road.splitGapAt(road.splitWallStartT) >= TC.SPLIT_WALL_GAP &&
+          inst.state.maxHalf <= road.branchHalfW("left", 1) + 1
+        );
+      },
+    },
+    {
+      id: "SEQ",
+      section: "collision",
+      family: "guard_green",
+      name: "Fork edge sequential replay",
+      proof:
+        "Geometry replay requested during planning: first a left-target convoy, then a right-target convoy. The fork must stay legal with zero premature inner-wall contacts.",
+      build() {
+        return {
+          cases: [
+            customCase("3L left then right", {
+              lanes: 3,
+              seed: 209,
+              maxTicks: 9000,
+              finishBased: true,
+              cars: sequentialForkCars(3, 6, 6),
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Done: countDone(sim) + "/12",
+          Time: timeStr(inst.cases[0]),
+          Wall: String(sim.testMetrics.wallEscapeCount),
+          "Premature split": String(sim.testMetrics.prematureSplitWallContactCount),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return (
+          sim.finished &&
+          countDone(sim) === 12 &&
+          sim.testMetrics.wallEscapeCount === 0 &&
+          sim.testMetrics.prematureSplitWallContactCount === 0
+        );
+      },
+    },
+    {
+      id: "P",
+      section: "collision",
+      family: "guard_green",
+      name: "dt-spike legality chaos",
+      proof:
+        "Road-based high-dt guard. Dense traffic at dt=2 and dt=3 must still stay overlap-free and inside the road.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L 20c dt2", {
+              lanes: 3,
+              cars: 20,
+              split: 50,
+              seed: 206,
+              maxTicks: 4000,
+              dt: 2,
+              w: PHONE.w,
+              h: PHONE.h,
+              finishBased: false,
+              stepsPerFrame: 12,
+            }),
+            standardCase("3L 20c dt3", {
+              lanes: 3,
+              cars: 20,
+              split: 50,
+              seed: 207,
+              maxTicks: 4000,
+              dt: 3,
+              w: PHONE.w,
+              h: PHONE.h,
+              finishBased: false,
+              stepsPerFrame: 12,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const a = inst.cases[0].sim;
+        const b = inst.cases[1].sim;
+        return {
+          "dt2 legal": legal(a) ? "YES" : "NO",
+          "dt3 legal": legal(b) ? "YES" : "NO",
+          "dt2 overlaps": String(a.testMetrics.overlapCount),
+          "dt3 overlaps": String(b.testMetrics.overlapCount),
+        };
+      },
+      verdict(inst) {
+        return inst.cases.every((caseRecord) => legal(caseRecord.sim));
+      },
+    },
+    {
+      id: "Q",
+      section: "mixed",
+      family: "known_red",
+      name: "Paradox race",
+      proof:
+        "1L, 2L, 3L at 50/50. The pass condition is that all complete and 1L finishes fastest.",
+      build() {
+        return {
+          cases: [
+            standardCase("1L", {
+              lanes: 1,
+              cars: 10,
+              split: 50,
+              seed: 301,
+              maxTicks: 6000,
+              stepsPerFrame: 8,
+            }),
+            standardCase("2L", {
+              lanes: 2,
+              cars: 10,
+              split: 50,
+              seed: 302,
+              maxTicks: 6000,
+              stepsPerFrame: 8,
+            }),
+            standardCase("3L", {
+              lanes: 3,
+              cars: 10,
+              split: 50,
+              seed: 303,
+              maxTicks: 6000,
+              stepsPerFrame: 8,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        return {
+          Order: finishOrder(inst.cases),
+          "1L done": countDone(inst.cases[0].sim) + "/10",
+          "2L done": countDone(inst.cases[1].sim) + "/10",
+          "3L done": countDone(inst.cases[2].sim) + "/10",
+        };
+      },
+      verdict(inst) {
+        const [a, b, c] = inst.cases.map((caseRecord) => caseRecord.sim);
+        return a.finished && b.finished && c.finished && a.timerSec < b.timerSec && a.timerSec < c.timerSec;
+      },
+    },
+    {
+      id: "R",
+      section: "mixed",
+      family: "survey_green",
+      name: "Completion race",
+      proof:
+        "Same comparative setup as Q, but judged only on whether all 1L/2L/3L runs complete within budget.",
+      build() {
+        return {
+          cases: [
+            standardCase("1L", {
+              lanes: 1,
+              cars: 10,
+              split: 50,
+              seed: 304,
+              maxTicks: 6000,
+              stepsPerFrame: 8,
+            }),
+            standardCase("2L", {
+              lanes: 2,
+              cars: 10,
+              split: 50,
+              seed: 305,
+              maxTicks: 6000,
+              stepsPerFrame: 8,
+            }),
+            standardCase("3L", {
+              lanes: 3,
+              cars: 10,
+              split: 50,
+              seed: 306,
+              maxTicks: 6000,
+              stepsPerFrame: 8,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        return {
+          Order: finishOrder(inst.cases),
+          "1L": inst.cases[0].sim.finished ? "DONE" : "DNF",
+          "2L": inst.cases[1].sim.finished ? "DONE" : "DNF",
+          "3L": inst.cases[2].sim.finished ? "DONE" : "DNF",
+        };
+      },
+      verdict(inst) {
+        return inst.cases.every((caseRecord) => caseRecord.sim.finished);
+      },
+    },
+    {
+      id: "S",
+      section: "mixed",
+      family: "guard_green",
+      name: "Maneuver activation",
+      proof:
+        "3L, 40 cars, 50/50. At least one car should enter maneuver mode in a real mixed-traffic jam.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L 40c", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 307,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Maneuvers: String(sim.testMetrics.maneuverEnterCount),
+          Done: countDone(sim) + "/40",
+          Time: timeStr(inst.cases[0]),
+          "No-progress max": sim.testMetrics.maxNoProgressTicks.toFixed(0),
+        };
+      },
+      stop(inst) {
+        return (
+          inst.cases[0].sim.testMetrics.maneuverEnterCount > 0 ||
+          inst.cases.every((caseRecord) => caseRecord.done)
+        );
+      },
+      verdict(inst) {
+        return inst.cases[0].sim.testMetrics.maneuverEnterCount > 0;
+      },
+    },
+    {
+      id: "T",
+      section: "mixed",
+      family: "guard_green",
+      name: "Progress-based maneuver reason",
+      proof:
+        "Same setup as S, but the maneuver entry must be caused by progress starvation, not just a generic fallback.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L 40c", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 308,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Progress maneuvers": String(sim.testMetrics.maneuverEnterReasons.progress),
+          "Total maneuvers": String(sim.testMetrics.maneuverEnterCount),
+          Done: countDone(sim) + "/40",
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      stop(inst) {
+        return (
+          inst.cases[0].sim.testMetrics.maneuverEnterReasons.progress > 0 ||
+          inst.cases.every((caseRecord) => caseRecord.done)
+        );
+      },
+      verdict(inst) {
+        return inst.cases[0].sim.testMetrics.maneuverEnterReasons.progress > 0;
+      },
+    },
+    {
+      id: "U",
+      section: "mixed",
+      family: "survey_green",
+      name: "Live merge safety under 50/50",
+      proof:
+        "2L, 10 cars, 50/50. Any accepted live merge should still respect the 33px normal safety distance.",
+      build() {
+        return {
+          cases: [
+            standardCase("2L 50/50", {
+              lanes: 2,
+              cars: 10,
+              split: 50,
+              seed: 309,
+              maxTicks: 5000,
+              stepsPerFrame: 10,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+          "Unsafe rejects": String(sim.testMetrics.mergeRejectUnsafeCount),
+          "Min accepted gap":
+            sim.testMetrics.minAcceptedMergeGap === Infinity
+              ? "INF"
+              : sim.testMetrics.minAcceptedMergeGap.toFixed(2),
+          "Wall escapes": String(sim.testMetrics.wallEscapeCount),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return legal(sim) && sim.testMetrics.mergeAcceptCount > 0 && sim.testMetrics.minAcceptedMergeGap >= CAR_L * 1.5;
+      },
+    },
+    {
+      id: "V",
+      section: "mixed",
+      family: "known_red",
+      name: "Conflict maneuver resolution",
+      proof:
+        "Mixed conflict should only count as solved if cars actually maneuver around the blockage and restore progress instead of only waiting.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L maneuver jam", {
+              lanes: 3,
+              cars: 14,
+              split: 50,
+              seed: 310,
+              maxTicks: 7000,
+              stepsPerFrame: 12,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "First maneuver":
+            sim.testMetrics.firstManeuverTick === null
+              ? "none"
+              : sim.testMetrics.firstManeuverTick.toFixed(0),
+          "First conflict clear":
+            sim.testMetrics.firstConflictClearanceTick === null
+              ? "none"
+              : sim.testMetrics.firstConflictClearanceTick.toFixed(0),
+          "Done left/right": `${leftDone(sim) ? 1 : 0}/${rightDone(sim) ? 1 : 0}`,
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        return leftDone(sim) && rightDone(sim) && sim.testMetrics.firstConflictClearanceTick !== null;
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        const restored =
+          leftDone(sim) &&
+          rightDone(sim) &&
+          sim.testMetrics.firstConflictClearanceTick !== null;
+        return {
+          kind:
+            legal(sim) &&
+              sim.testMetrics.firstManeuverTick !== null &&
+              restored
+              ? "pass"
+              : "fail",
+          text:
+            legal(sim) &&
+              sim.testMetrics.firstManeuverTick !== null &&
+              restored
+              ? "PASS"
+              : "FAIL",
+        };
+      },
+    },
+    {
+      id: "AA",
+      section: "mixed",
+      family: "survey_green",
+      name: "Blocked-exit legality / spillback",
+      proof:
+        "Downstream left branch is blocked. No car may be admitted into the blocked branch illegally, and no car should stall inside the conflict zone for too long.",
+      build() {
+        return {
+          cases: [
+            customCase("2L blocked exit conflict", {
+              lanes: 2,
+              seed: 410,
+              maxTicks: 320,
+              cars: blockedExitConflictCars(),
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Conflict entries": conflictMetrics(sim),
+          "Blocked-exit admits": String(sim.testMetrics.illegalBlockedExitAdmissionCount),
+          "Max conflict stall": sim.testMetrics.maxConflictZoneStallTicks.toFixed(0),
+          "Branch stop": sim.testMetrics.maxBlockedBranchStopTicks.toFixed(0),
+        };
+      },
+      evaluate(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          kind:
+            legal(sim) &&
+              sim.testMetrics.illegalBlockedExitAdmissionCount === 0 &&
+              sim.testMetrics.maxConflictZoneStallTicks <= 10
+              ? "pass"
+              : "fail",
+          text:
+            legal(sim) &&
+              sim.testMetrics.illegalBlockedExitAdmissionCount === 0 &&
+              sim.testMetrics.maxConflictZoneStallTicks <= 10
+              ? "PASS"
+              : "FAIL",
+        };
+      },
+    },
+    {
+      id: "W",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Fair alternation / starvation",
+      proof:
+        "3L, 20 cars, 50/50. Both targets must get service and starvation must stay below 180 ticks.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L fairness", {
+              lanes: 3,
+              cars: 20,
+              split: 50,
+              seed: 311,
+              maxTicks: 7000,
+              stepsPerFrame: 12,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const left = sim.cars.filter((car) => car.done && car.target === "left").length;
+        const right = sim.cars.filter((car) => car.done && car.target === "right").length;
+        return {
+          "Done left/right": `${left}/${right}`,
+          "Max starve": String(sim.testMetrics.maxStarveTicks),
+          Batches: String(sim.testMetrics.batchGrantCount),
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const left = sim.cars.filter((car) => car.done && car.target === "left").length;
+        const right = sim.cars.filter((car) => car.done && car.target === "right").length;
+        return left > 0 && right > 0 && sim.testMetrics.maxStarveTicks <= 180;
+      },
+    },
+    {
+      id: "X",
+      section: "mixed",
+      family: "guard_green",
+      name: "Late lane oscillation",
+      proof:
+        "3L, 20 cars, 50/50. No car should keep attempting voluntary lane changes after COMMIT_DIST.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L commit lock", {
+              lanes: 3,
+              cars: 20,
+              split: 50,
+              seed: 312,
+              maxTicks: 7000,
+              stepsPerFrame: 12,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Late commit changes": String(sim.testMetrics.lateCommitLaneChangeCount),
+          "Merge attempts": String(sim.testMetrics.mergeAttemptCount),
+          Done: countDone(sim) + "/20",
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        return inst.cases[0].sim.testMetrics.lateCommitLaneChangeCount === 0;
+      },
+    },
+    {
+      id: "Y",
+      section: "mixed",
+      family: "known_red",
+      name: "Stress completion",
+      proof:
+        "4L and 5L, 40 cars, 50/50. Both heavy mixed-traffic runs should still complete within the large tick budget.",
+      build() {
+        return {
+          cases: [
+            standardCase("4L", {
+              lanes: 4,
+              cars: 40,
+              split: 50,
+              seed: 313,
+              maxTicks: 30000,
+              stepsPerFrame: 40,
+            }),
+            standardCase("5L", {
+              lanes: 5,
+              cars: 40,
+              split: 50,
+              seed: 314,
+              maxTicks: 30000,
+              stepsPerFrame: 40,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        return {
+          "4L": inst.cases[0].sim.finished ? timeStr(inst.cases[0]) : "DNF",
+          "5L": inst.cases[1].sim.finished ? timeStr(inst.cases[1]) : "DNF",
+          "4L done": countDone(inst.cases[0].sim) + "/40",
+          "5L done": countDone(inst.cases[1].sim) + "/40",
+        };
+      },
+      verdict(inst) {
+        return inst.cases.every((caseRecord) => caseRecord.sim.finished);
+      },
+    },
+    {
+      id: "Z",
+      section: "mixed",
+      family: "guard_green",
+      name: "Seed 309 hard-wall replay",
+      proof:
+        "Mirror the U seed, but judge only the hard-wall contract. This isolates whether the 2L 50/50 seed 309 run ever leaves the road.",
+      build() {
+        return {
+          cases: [
+            standardCase("2L seed 309 wall", {
+              lanes: 2,
+              cars: 10,
+              split: 50,
+              seed: 309,
+              maxTicks: 5000,
+              stepsPerFrame: 10,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Wall escapes": String(sim.testMetrics.wallEscapeCount),
+          Overlap: String(sim.testMetrics.overlapCount),
+          Done: countDone(sim) + "/10",
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return sim.testMetrics.wallEscapeCount === 0 && sim.testMetrics.overlapCount === 0;
+      },
+    },
+  ];
+
+  const FAMILY_META = {
+    guard_green: { gate: "guard", expected: "pass" },
+    survey_green: { gate: "survey", expected: "pass" },
+    known_red: { gate: "known_red", expected: "fail" },
+    diagnostic: { gate: "diagnostic", expected: "observe" },
+  };
+
+  TESTS = TESTS.map((def) => ({ ...FAMILY_META[def.family], ...def }));
+
+  function createInstance(def) {
+    const built = def.build();
+    return {
+      def,
+      cases: built.cases.map((caseRecord) => ({ ...caseRecord, tick: 0, done: false })),
+      state: built.state || {},
+      running: false,
+      done: false,
+      passed: null,
+      rawOutcome: null,
+      outcome: null,
+      speedMult: def.defaultSpeed || 1,
+    };
+  }
+
+  function stepCase(caseRecord, speedMult) {
+    if (caseRecord.done) {
+      return;
+    }
+    const steps = caseRecord.stepsPerFrame || autoSteps(caseRecord);
+    if (!caseRecord.sim.started) {
+      caseRecord.sim.start();
+    }
+    for (let i = 0; i < steps; i++) {
+      if (
+        (caseRecord.finishBased !== false && caseRecord.sim.finished) ||
+        caseRecord.tick >= caseRecord.maxTicks
+      ) {
+        break;
+      }
+      caseRecord.sim.tick(caseRecord.dt, { v0: V0_DEF * speedMult });
+      caseRecord.tick++;
+    }
+    if (
+      (caseRecord.finishBased !== false && caseRecord.sim.finished) ||
+      caseRecord.tick >= caseRecord.maxTicks
+    ) {
+      caseRecord.done = true;
+    }
+  }
+
+  function getRawOutcome(def, inst) {
+    const result =
+      typeof def.evaluate === "function" ? def.evaluate(inst) : def.verdict(inst);
+    return normalizeOutcome(result);
+  }
+
+  function getDisplayOutcome(def, rawOutcome) {
+    if (def.expected === "fail" && rawOutcome.kind === "pass") {
+      return {
+        kind: "warn",
+        text: "WARN",
+        passed: false,
+        note:
+          rawOutcome.note ||
+          "Known-red card measured a passing state, but remains survey-only until reclassified.",
+      };
+    }
+    return rawOutcome;
+  }
+
+  function stepInstance(inst) {
+    if (inst.done) {
+      return inst;
+    }
+    inst.cases.forEach((caseRecord) => stepCase(caseRecord, inst.speedMult));
+    if (typeof inst.def.observe === "function") {
+      inst.def.observe(inst);
+    }
+    const stop =
+      typeof inst.def.stop === "function"
+        ? inst.def.stop(inst)
+        : inst.cases.every((caseRecord) => caseRecord.done);
+    if (stop) {
+      inst.done = true;
+      inst.rawOutcome = getRawOutcome(inst.def, inst);
+      inst.outcome = getDisplayOutcome(inst.def, inst.rawOutcome);
+      inst.passed = inst.outcome.passed;
+    }
+    return inst;
+  }
+
+  function runInstance(defOrInst, options) {
+    const inst = defOrInst.def ? defOrInst : createInstance(defOrInst);
+    const runOptions = options || {};
+    if (runOptions.speedMult !== undefined) {
+      inst.speedMult = runOptions.speedMult;
+    }
+    inst.cases.forEach((caseRecord) => {
+      if (!caseRecord.sim.started) {
+        caseRecord.sim.start();
+      }
+    });
+    let guard = 0;
+    while (!inst.done) {
+      stepInstance(inst);
+      guard++;
+      if (guard > 200000) {
+        throw new Error(`Traffic test ${inst.def.id} did not terminate.`);
+      }
+    }
+    return inst;
+  }
+
+  function matchesSelection(def, filters) {
+    const selectedIds = filters.ids || [];
+    const selectedSections = filters.sections || [];
+    const selectedFamilies = filters.families || [];
+    const selectedGates = filters.gates || [];
+    if (selectedIds.length && !selectedIds.includes(def.id)) {
+      return false;
+    }
+    if (selectedSections.length && !selectedSections.includes(def.section)) {
+      return false;
+    }
+    if (selectedFamilies.length && !selectedFamilies.includes(def.family)) {
+      return false;
+    }
+    if (selectedGates.length && !selectedGates.includes(def.gate)) {
+      return false;
+    }
+    return true;
+  }
+
+  function filterTests(filters) {
+    const safeFilters = filters || {};
+    return TESTS.filter((def) => matchesSelection(def, safeFilters));
+  }
+
+  global.TrafficTestSuite = {
+    VIEW,
+    PHONE,
+    SUITES,
+    get TESTS() {
+      return TESTS;
+    },
+    createHidden,
+    standardCase,
+    customCase,
+    legal,
+    countDone,
+    timeStr,
+    finishOrder,
+    lastEvents,
+    autoSteps,
+    wholePathErr,
+    conflictCars,
+    blockedExitConflictCars,
+    sequentialForkCars,
+    leftBranchBlockers,
+    conflictMetrics,
+    normalizeOutcome,
+    leftDone,
+    rightDone,
+    createInstance,
+    stepCase,
+    stepInstance,
+    runInstance,
+    getRawOutcome,
+    getDisplayOutcome,
+    filterTests,
+    matchesSelection,
+    _setSuites(nextSuites) {
+      SUITES.splice(0, SUITES.length, ...nextSuites);
+    },
+    _setTests(nextTests) {
+      TESTS = nextTests.map((def) => ({ ...FAMILY_META[def.family], ...def }));
+    },
+  };
+})(typeof window !== "undefined" ? window : globalThis);

@@ -1,6 +1,31 @@
 V18 Plan Document — Traffic Lane Paradox Simulation
 Status: FINAL DRAFT — Ready for user review before building
 
+0. Harness Audit Update â€” 2026-03-11
+This document now has a newer harness-first reality layer. The shared scenario registry lives in `traffic_test_suite.js`, the visual dashboard in `red_visual_tests.html` consumes that shared registry, and `run_traffic_suite.js` runs the same cards under Node. The old v19 diagnosis below is historical context, not the current ground truth.
+
+Implemented harness changes:
+- Shared A-AA registry extracted out of the HTML dashboard.
+- Browser dashboard and Node CLI now read the same definitions, metrics, and verdict functions.
+- `package.json` exposes `traffic:test:guards`, `traffic:test:survey`, and `traffic:test:focus`.
+- CLI records now include `id`, `gate`, `verdict`, `time`, and serialized metrics.
+
+Shared audit results already confirmed by the new runner:
+- `AA` now passes. Blocked-exit admission is prevented, `illegalBlockedExitAdmissionCount` is zero, and same-target runs no longer log false blocked-exit violations.
+- `B` now passes. The partial-clearance case produces measurable legal lateral motion without accepting an unsafe merge.
+- `R` now passes. All 1L/2L/3L comparison runs complete within budget.
+- `U` now passes. Accepted live merges stayed at or above `CAR_L * 1.5` in the audited run.
+- `S`, `T`, and `X` are confirmed guards.
+- `D` is diagnostic, not a hard-deadlock red card.
+- `N` is diagnostic. Its verdict is an interaction-quality threshold, not a hard safety invariant.
+
+Cards still intentionally survey-only after this audit:
+- Active red targets: `C`, `H`, `I`, `Q`, `V`, and `Y`.
+- `W` remains survey-only until a full solo fairness audit completes. It should not be treated as a confirmed green guard yet.
+
+Notes on audit cost:
+- Some heavy mixed-traffic cards are expensive enough that combined CLI runs can exceed local shell timeouts. The harness is correct; the practical workflow is to run focused subsets or single cards for the heaviest cases.
+
 1. Overview
 V18 is a major rewrite addressing six defect categories and adding coordinated maneuvering, visual improvements, and UI changes. Every system interaction has been designed through iterative discussion. This document captures every decision made and specifies exactly what to build and test.
 
@@ -409,3 +434,124 @@ Internal helper methods to add:
 - Hard walls and no-overlap remain absolute; the new feature improves traffic handling without weakening those rules.
 - The chosen product priority is: resolve gridlocks first, then tune for paradox preservation.
 - The chosen architecture is hybrid: local motion planner plus fork-level coordination, not local-only and not scheduler-only.
+
+16. Visual Red Suite Restoration Mapping
+This section documents the restored visual regression dashboard in `red_visual_tests.html`, what each card is trying to discover, and how the new road-based cards map back to the older red harness and the current v19/v20 failure categories. The goal is to preserve coverage intent even when the underlying geometry or harness architecture changes.
+
+16.1 Legacy A-E Mapping
+The old A-E suite was not road-based, but each card was testing a specific behavioral question. The restored cards keep the same IDs and test those same questions on the real road geometry and shared simulation core.
+
+- `A Blocked progress counter`
+  Old intent: verify the blocked-car timer/precondition actually accumulates instead of silently resetting.
+  New road-based replacement: one main-road car sits behind a stopper near the fork.
+  What it is trying to discover now: whether the progress-based stuck detection used by the current architecture can still observe a truly blocked car.
+
+- `B Blocked car creates lateral alternative`
+  Old intent: a blocked car should not freeze forever if there is legal lateral clearance.
+  New road-based replacement: a 2-lane approach with a blocker ahead and only partial side clearance.
+  What it is trying to discover now: whether the planner can produce a legal sideways escape instead of full dead-stop behavior.
+
+- `C Open-lane bypass / lane-change progress`
+  Old intent: if the adjacent lane is clearly open, the blocked car must actually use it.
+  New road-based replacement: a 2-lane approach with a blocker in lane 0 and an open lane 1.
+  What it is trying to discover now: whether legal merge progress happens within budget instead of the car remaining trapped behind the blocker.
+
+- `D Conflict pair must not hard-deadlock`
+  Old intent: two conflicting cars should not freeze forever at the interaction point.
+  New road-based replacement: matched-ETA fork entrants with different targets.
+  What it is trying to discover now: whether mixed-direction traffic still hard-deadlocks once both cars reach the fork.
+
+- `E Hard constraint guard`
+  Old intent: even if traffic handling fails, hard legality must still hold.
+  New road-based replacement: the same conflict geometry as `D`, but judged only on hard legality.
+  What it is trying to discover now: whether no-overlap and no-wall-escape guarantees are still intact under the conflict geometry.
+
+16.2 Same-Target Guard Cards
+These cards cover the phase-1 same-target stabilization work and remain part of the visual regression dashboard because they guard the nominal lane-centering behavior.
+
+- `F Side-by-side lane hold`
+  Intent: two cars in adjacent lanes, same direction, must stay centered and parallel without wobble.
+
+- `G 1L baseline throughput`
+  Intent: preserve the known-good single-lane baseline for completion time and legality.
+
+- `H 2L same-target throughput`
+  Intent: expose whether same-direction two-lane flow is both legal and materially faster than the 1-lane baseline.
+
+- `I 3L same-target throughput`
+  Intent: expose whether same-direction three-lane flow scales beyond the 2-lane case instead of just wobbling legally.
+
+- `J Fork approach lane hold`
+  Intent: confirm that same-direction parallel traffic remains centered and stable on the approach to the fork, not just on a straight isolated segment.
+
+16.3 Collision Harness Family Mapping
+The earlier non-road collision harness covered several distinct scenario families. The restored road-based cards do not reproduce the old free-space geometry exactly; they recreate the usefulness of those checks on the real fork roadway.
+
+- Old rear-end safety -> `K Rear-end queue stop`
+  What it is trying to discover: whether a following car ever phases through or passes a stopped queue leader on the real road.
+
+- Old failed lane-merge safety -> `L Unsafe merge rejection`
+  What it is trying to discover: whether a merge is ever accepted with gap `< CAR_L * 1.5`.
+
+- Old lane-merge liveness -> `M Safe merge acceptance`
+  What it is trying to discover: whether the system is over-conservative and refuses clearly safe merges.
+
+- Old T-bone / diagonal conflict protection -> `N Fork conflict hard-constraint`
+  What it is trying to discover: whether conflict-zone protection still prevents overlap when two cars reach the fork on matched ETA.
+
+- Old three-car pileup / squeeze-from-both-sides -> `O Dense squeeze queue`
+  What it is trying to discover: whether dense queue pressure stays legal and visually compresses without phasing, illegal merges, or wall escape.
+
+- Old high-dt / chaos legality -> `P dt-spike legality chaos`
+  What it is trying to discover: whether coarse timesteps on phone-like geometry still preserve hard legality under dense seeded traffic.
+
+16.4 Mixed-Traffic Failure Mapping
+These cards correspond directly to the currently unresolved mixed-traffic failures described in Sections 11, 14, and 15.
+
+- `Q Paradox race`
+  Maps to: Test 5 (Paradox).
+  What it is trying to discover: whether `1L` finishes fastest under `50/50` demand once the fork conflicts are working properly.
+
+- `R Completion race`
+  Maps to: Test 7 failure symptoms and general mixed-flow liveness.
+  What it is trying to discover: whether `1L`, `2L`, and `3L` all finish at all under `50/50`.
+
+- `S Maneuver activation`
+  Maps to: Test 8 (Maneuvering Activation).
+  What it is trying to discover: whether the system ever enters maneuver mode in dense mixed traffic.
+
+- `T Progress-based maneuver reason`
+  Maps to: V20 progress-trigger requirement.
+  What it is trying to discover: whether at least one maneuver is triggered for lack of progress instead of some incidental fallback.
+
+- `U Live merge safety under 50/50`
+  Maps to: Test 9 (Safety Distance Enforcement).
+  What it is trying to discover: whether accepted merges in live mixed traffic still obey the `33px` gap rule.
+
+- `V Spillback / exit-clearance`
+  Maps to: V20 exit-clearance and spillback-prevention requirements.
+  What it is trying to discover: whether cars illegally enter the conflict zone when their target branch has no downstream room.
+
+- `W Fair alternation / starvation`
+  Maps to: V20 fairness/starvation requirements.
+  What it is trying to discover: whether one branch can be starved while the other continues to receive service.
+
+- `X Late lane oscillation`
+  Maps to: V20 no-late-oscillation requirement.
+  What it is trying to discover: whether cars keep attempting voluntary lane changes after `COMMIT_DIST`.
+
+- `Y Stress completion`
+  Maps to: Test 7 (Stress Completion).
+  What it is trying to discover: whether `4L` and `5L` mixed-traffic stress runs ever fully clear the network within the large tick budget.
+
+16.5 Dashboard Classification
+Every visual card is tagged as one of:
+- `guard_green`: this is a hard safety or baseline guard that should already stay green.
+- `known_red`: this is a currently expected failure that must remain visible until the feature is truly fixed.
+- `diagnostic`: this is primarily an observability card used to expose how the current logic behaves, even if no pass/fail target is stable yet.
+
+16.6 Non-Road Coverage Rule
+The restored dashboard intentionally avoids the old free-space geometry. Future rewrites may change canvas layout, card grouping, or rendering details, but they must preserve the discovery intent documented above:
+- A-E preserve the original legacy red questions.
+- K-P preserve the old collision-harness scenario families.
+- Q-Y preserve the mixed-traffic and v19/v20 failure coverage.
