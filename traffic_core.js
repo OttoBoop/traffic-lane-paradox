@@ -39,6 +39,7 @@
   const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
   const SINGLE_LANE_BASE_LW = 28;
   const CAR_HALF_DIAG = Math.hypot(CAR_L / 2, CAR_W / 2);
+  const BRANCH_SPREAD_HEIGHT_RATIO = 1.35;
 
   const RENDER_THEMES = {
     classic: {
@@ -209,7 +210,10 @@
       this.lw = this.mainLw;
       this.forkY = h * 0.50; this.stopY = h * 0.72; this.entryY = h + 90;
       this.mainLen = this.entryY - this.forkY;
-      const sp = Math.min(w * 0.44, 200);
+      const branchRise = Math.max(this.forkY - 8, this.branchLw * 2);
+      const minSpread = Math.max(this.branchLw * (this.n + 0.5), this.mainLw * 2.4);
+      const spreadCapByHeight = Math.max(minSpread, branchRise * BRANCH_SPREAD_HEIGHT_RATIO);
+      const sp = Math.min(w * 0.44, 200, spreadCapByHeight);
       this.lEnd = { x: this.cx - sp, y: 8 }; this.rEnd = { x: this.cx + sp, y: 8 };
       const baseDist = Math.hypot(sp, this.forkY - 8), cpDist = baseDist * 0.45;
       this.branchCP1 = { x: this.cx, y: this.forkY - cpDist };
@@ -1742,9 +1746,21 @@
     }
     draw() {
       const ctx = this.ctx, dpr = devicePixelRatio || 1, w = this.cv.width / dpr, h = this.cv.height / dpr;
-      const rd = this.sim.road; if (!rd) return; ctx.save(); ctx.clearRect(0, 0, w, h); ctx.fillStyle = this.theme.canvas; ctx.fillRect(0, 0, w, h);
-      if (this.theme.scene === 'rio_satellite') this._scene(rd, w, h);
-      this._road(rd, h); this._stop(rd); this._cars(rd, h); ctx.restore();
+      const rd = this.sim.road;
+      if (!rd) return;
+      const logicalW = Math.max(rd.w || w, 1);
+      const logicalH = Math.max(rd.h || h, 1);
+      const scale = Math.min(w / logicalW, h / logicalH);
+      const offsetX = (w - logicalW * scale) / 2;
+      const offsetY = (h - logicalH * scale) / 2;
+      ctx.save();
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = this.theme.canvas;
+      ctx.fillRect(0, 0, w, h);
+      ctx.translate(offsetX, offsetY);
+      ctx.scale(scale, scale);
+      if (this.theme.scene === 'rio_satellite') this._scene(rd, logicalW, logicalH);
+      this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH); ctx.restore();
     }
     _scene(rd, w, h) {
       const ctx = this.ctx, t = this.theme, m = this._sceneMetrics(rd, w, h);
