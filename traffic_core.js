@@ -30,6 +30,7 @@
   const MAX_BATCH_SIZE = 2;
   const BATCH_HOLD_TICKS = 24;
   const NO_PROGRESS_THRESH = 60;
+  const NO_PROGRESS_THRESH_YIELD = 480;
   const PROGRESS_RESUME_THRESH = 20;
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
@@ -37,6 +38,7 @@
   const EARLY_EXIT_SCORE = 0.9;
   const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
   const SINGLE_LANE_BASE_LW = 28;
+  const CAR_HALF_DIAG = Math.hypot(CAR_L / 2, CAR_W / 2);
 
   const RENDER_THEMES = {
     classic: {
@@ -172,6 +174,9 @@
   }
 
   function satOverlapMargin(ax, ay, ath, bx, by, bth, margin) {
+    const halfDiag = CAR_HALF_DIAG + (margin || 0);
+    const dx = ax - bx, dy = ay - by;
+    if (dx * dx + dy * dy > (halfDiag * 2) * (halfDiag * 2)) return false;
     const cA = carCorners(ax, ay, ath, margin), cB = carCorners(bx, by, bth, margin);
     const axes = [{ x: Math.cos(ath), y: Math.sin(ath) }, { x: -Math.sin(ath), y: Math.cos(ath) },
     { x: Math.cos(bth), y: Math.sin(bth) }, { x: -Math.sin(bth), y: Math.cos(bth) }];
@@ -619,6 +624,7 @@
         c.blockingKind = blockInfo.kind;
         c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
         const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield';
+        const maneuverProgressThresh = c.trafficMode === 'yield' ? NO_PROGRESS_THRESH_YIELD : NO_PROGRESS_THRESH;
         let shouldAccumulate = this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done;
         if (shouldAccumulate && c.trafficMode === 'yield') {
           const batchCarProgressing = active.some(b => b.trafficMode === 'batch' && b.noProgressTicks < NO_PROGRESS_THRESH && !b.done);
@@ -661,9 +667,9 @@
         const canEnterManeuver = activeManeuverCount < MAX_ACTIVE_MANEUVERS;
         const shouldProbeForward =
           c.maneuvering ||
-          (!c.done && blockedForProgress && c.trafficMode !== 'batch' && c.noProgressTicks >= NO_PROGRESS_THRESH && canEnterManeuver);
+          (!c.done && blockedForProgress && c.trafficMode !== 'batch' && c.noProgressTicks >= maneuverProgressThresh && canEnterManeuver);
         const canExitManeuverNow = shouldProbeForward ? this._getCachedForwardProgressMove(c, active, rd, dt) : false;
-        if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= NO_PROGRESS_THRESH && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
+        if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= maneuverProgressThresh && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
           c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
           c.plannerMode = 'traffic';
           this.maneuverTriggerCount++;
@@ -1306,6 +1312,9 @@
 
     _isPoseOutsideRoad(c, pose, rd, margin = PROJ_MARGIN) {
       const M = margin;
+      const centerClearance = rd.roadClearance(pose.x, pose.y);
+      if (centerClearance < 0) return true;
+      if (centerClearance >= CAR_HALF_DIAG + M) return false;
       for (const corner of carCorners(pose.x, pose.y, pose.th, M)) {
         if (rd.roadClearance(corner.x, corner.y) < 0) return true;
       }

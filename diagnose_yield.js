@@ -1,5 +1,6 @@
-// Diagnostic script: find a scenario where yield→maneuver bug fires within 300 ticks
+// Diagnostic script: find a scenario where yield→maneuver triggers before the 8-second threshold
 const fs = require('fs'), vm = require('vm'), path = require('path');
+const NO_PROGRESS_THRESH_YIELD = 480;
 const root = __dirname;
 const sandbox = { console, Math };
 sandbox.window = sandbox; sandbox.global = sandbox; sandbox.globalThis = sandbox;
@@ -27,7 +28,7 @@ function runScenario(lanes, nCars, seed, maxTicks) {
         if (car.id in yieldHistory) {
           const delta = t - yieldHistory[car.id];
           maneuverFromYield.push({ carId: car.id, t, delta });
-          if (delta < 270) {
+          if (delta < NO_PROGRESS_THRESH_YIELD) {
             console.log(`VIOLATION: ${lanes}L/${nCars}c/seed${seed}: car${car.id} yield@${yieldHistory[car.id]} maneuver@${t} delta=${delta} (${Date.now()-t0}ms elapsed)`);
           }
         }
@@ -35,7 +36,7 @@ function runScenario(lanes, nCars, seed, maxTicks) {
     }
   }
   const elapsed = Date.now() - t0;
-  const violations = maneuverFromYield.filter(v => v.delta < 270).length;
+  const violations = maneuverFromYield.filter(v => v.delta < NO_PROGRESS_THRESH_YIELD).length;
   console.log(`${lanes}L/${nCars}c/seed${seed}/${maxTicks}t: ${elapsed}ms | yields=${Object.keys(yieldHistory).length} maneuvers=${sim.testMetrics.maneuverEnterCount} violations=${violations} maxNoProgress=${sim.testMetrics.maxNoProgressTicks.toFixed(0)}`);
   return violations;
 }
