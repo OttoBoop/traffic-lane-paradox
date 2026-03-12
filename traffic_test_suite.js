@@ -780,10 +780,225 @@
         };
       },
     },
+      {
+        id: "AJ",
+        section: "same",
+        family: "guard_green",
+        name: "Side-by-side opposite-target fork hold",
+        proof:
+          "Two adjacent cars already aligned with non-conflicting left/right branch paths should follow their own curves without merge, yield, maneuver, or visible path wobble.",
+        build() {
+          const caseRecord = customCase("2L opposite split hold", {
+            lanes: 2,
+            seed: 801,
+            maxTicks: 420,
+            finishBased: true,
+            cars: [
+              { id: 0, lane: 0, target: "left", y: 620 },
+              { id: 1, lane: 1, target: "right", y: 620 },
+            ],
+          });
+          return {
+            cases: [caseRecord],
+            state: { maxPathErr: 0, maxYaw: 0, overlap: false },
+          };
+        },
+        observe(inst) {
+          const sim = inst.cases[0].sim;
+          sim.cars.forEach((car) => {
+            if (car.done) return;
+            const pq = pathQuery(car.path, car.x, car.y, car.pathIdx);
+            let hd = car.th - pq.ang;
+            while (hd > Math.PI) hd -= Math.PI * 2;
+            while (hd < -Math.PI) hd += Math.PI * 2;
+            inst.state.maxPathErr = Math.max(inst.state.maxPathErr, wholePathErr(car));
+            inst.state.maxYaw = Math.max(inst.state.maxYaw, Math.abs(hd));
+          });
+          inst.state.overlap = inst.state.overlap || satOverlap(sim.cars[0], sim.cars[1]);
+        },
+        metrics(inst) {
+          const sim = inst.cases[0].sim;
+          return {
+            Done: countDone(sim) + "/2",
+            "Max path err": inst.state.maxPathErr.toFixed(2) + "px",
+            "Max yaw": ((inst.state.maxYaw * 180) / Math.PI).toFixed(2) + " deg",
+            Modes: `${sim.testMetrics.yieldEnterCount}/${sim.testMetrics.holdExitEnterCount}/${sim.testMetrics.maneuverEnterCount}/${sim.batchEntryCount}`,
+            Merges: String(sim.testMetrics.mergeAcceptCount),
+          };
+        },
+        verdict(inst) {
+          const sim = inst.cases[0].sim;
+          return (
+            sim.finished &&
+            legal(sim) &&
+            !inst.state.overlap &&
+            inst.state.maxPathErr < 3.0 &&
+            inst.state.maxYaw < 0.12 &&
+            sim.testMetrics.yieldEnterCount === 0 &&
+            sim.testMetrics.holdExitEnterCount === 0 &&
+            sim.testMetrics.maneuverEnterCount === 0 &&
+            sim.batchEntryCount === 0 &&
+            sim.testMetrics.mergeAcceptCount === 0 &&
+            sim.testMetrics.maxNoProgressTicks === 0
+          );
+        },
+      },
+      {
+        id: "AK",
+        section: "same",
+        family: "guard_green",
+        name: "Staggered opposite-target fork hold",
+        proof:
+          "A nearby side car on the adjacent fork path should still be treated as compatible traffic: the pair should keep progressing along left/right curves without false side-blocking traffic modes.",
+        build() {
+          const caseRecord = customCase("2L opposite split staggered", {
+            lanes: 2,
+            seed: 802,
+            maxTicks: 420,
+            finishBased: true,
+            cars: [
+              { id: 0, lane: 0, target: "left", y: 624 },
+              { id: 1, lane: 1, target: "right", y: 616 },
+            ],
+          });
+          return {
+            cases: [caseRecord],
+            state: { maxPathErr: 0, maxYaw: 0, overlap: false },
+          };
+        },
+        observe(inst) {
+          const sim = inst.cases[0].sim;
+          sim.cars.forEach((car) => {
+            if (car.done) return;
+            const pq = pathQuery(car.path, car.x, car.y, car.pathIdx);
+            let hd = car.th - pq.ang;
+            while (hd > Math.PI) hd -= Math.PI * 2;
+            while (hd < -Math.PI) hd += Math.PI * 2;
+            inst.state.maxPathErr = Math.max(inst.state.maxPathErr, wholePathErr(car));
+            inst.state.maxYaw = Math.max(inst.state.maxYaw, Math.abs(hd));
+          });
+          inst.state.overlap = inst.state.overlap || satOverlap(sim.cars[0], sim.cars[1]);
+        },
+        metrics(inst) {
+          const sim = inst.cases[0].sim;
+          return {
+            Done: countDone(sim) + "/2",
+            "Max path err": inst.state.maxPathErr.toFixed(2) + "px",
+            "Max yaw": ((inst.state.maxYaw * 180) / Math.PI).toFixed(2) + " deg",
+            Modes: `${sim.testMetrics.yieldEnterCount}/${sim.testMetrics.holdExitEnterCount}/${sim.testMetrics.maneuverEnterCount}/${sim.batchEntryCount}`,
+            Merges: String(sim.testMetrics.mergeAcceptCount),
+          };
+        },
+        verdict(inst) {
+          const sim = inst.cases[0].sim;
+          return (
+            sim.finished &&
+            legal(sim) &&
+            !inst.state.overlap &&
+            inst.state.maxPathErr < 3.0 &&
+            inst.state.maxYaw < 0.12 &&
+            sim.testMetrics.yieldEnterCount === 0 &&
+            sim.testMetrics.holdExitEnterCount === 0 &&
+            sim.testMetrics.maneuverEnterCount === 0 &&
+            sim.batchEntryCount === 0 &&
+            sim.testMetrics.mergeAcceptCount === 0 &&
+            sim.testMetrics.maxNoProgressTicks === 0
+          );
+        },
+      },
+      {
+        id: "AL",
+        section: "same",
+        family: "guard_green",
+        name: "Blocked with side neighbor waits cleanly",
+        proof:
+          "If the adjacent lane is occupied, a blocked driver should wait cleanly instead of inventing a maneuver response to a side car.",
+        build() {
+          return {
+            cases: [
+              customCase("2L blocked side occupied", {
+                lanes: 2,
+                seed: 803,
+                maxTicks: 240,
+                cars: [
+                  { id: 0, lane: 0, target: "left", y: 530, mobilTimer: 0 },
+                  { id: 1, lane: 0, target: "left", y: 482, fixed: true, color: "#666" },
+                  { id: 2, lane: 1, target: "right", y: 494, fixed: true, color: "#2888c4" },
+                  { id: 3, lane: 1, target: "right", y: 574, fixed: true, color: "#5aa6d1" },
+                ],
+              }),
+            ],
+            state: {},
+          };
+        },
+        metrics(inst) {
+          const sim = inst.cases[0].sim;
+          return {
+            Maneuvers: String(sim.testMetrics.maneuverEnterCount),
+            Yields: String(sim.testMetrics.yieldEnterCount),
+            "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+            "No-progress": sim.testMetrics.maxNoProgressTicks.toFixed(0),
+          };
+        },
+        verdict(inst) {
+          const sim = inst.cases[0].sim;
+          return (
+            legal(sim) &&
+            sim.testMetrics.maneuverEnterCount === 0 &&
+            sim.testMetrics.yieldEnterCount === 0 &&
+            sim.testMetrics.mergeAcceptCount === 0
+          );
+        },
+      },
+      {
+        id: "AM",
+        section: "legacy",
+        family: "known_red",
+        name: "Open-lane bypass avoids false maneuver",
+        proof:
+          "With a truly open adjacent lane, bypass behavior should not escalate into maneuver mode; the car should solve it through legal lateral progress or merge logic.",
+        build() {
+          const caseRecord = customCase("2L open lane no maneuver", {
+            lanes: 2,
+            seed: 804,
+            maxTicks: 1200,
+            stepsPerFrame: 8,
+            cars: [
+              { id: 0, lane: 0, target: "left", y: 535, mobilTimer: 0 },
+              { id: 1, lane: 0, target: "left", y: 485, fixed: true, color: "#666" },
+            ],
+          });
+          return {
+            cases: [caseRecord],
+            state: { startX: caseRecord.sim.cars[0].x, maxShift: 0 },
+          };
+        },
+        observe(inst) {
+          const mover = inst.cases[0].sim.cars[0];
+          inst.state.maxShift = Math.max(inst.state.maxShift, Math.abs(mover.x - inst.state.startX));
+        },
+        metrics(inst) {
+          const sim = inst.cases[0].sim;
+          return {
+            "Max lateral shift": inst.state.maxShift.toFixed(2) + "px",
+            Maneuvers: String(sim.testMetrics.maneuverEnterCount),
+            "Merge accepts": String(sim.testMetrics.mergeAcceptCount),
+            "No-progress": sim.testMetrics.maxNoProgressTicks.toFixed(0),
+          };
+        },
+        verdict(inst) {
+          const sim = inst.cases[0].sim;
+          return (
+            legal(sim) &&
+            sim.testMetrics.maneuverEnterCount === 0 &&
+            (sim.testMetrics.mergeAcceptCount > 0 || inst.state.maxShift > 4)
+          );
+        },
+      },
     {
       id: "AF",
       section: "same",
-      family: "known_red",
+      family: "guard_green",
       name: "1L straight path hold",
       proof:
         "A single 1-lane car on a clear road should track the straight main-road centerline without visible wobble before the fork.",
@@ -798,6 +1013,8 @@
           cases: [caseRecord],
           state: {
             center: caseRecord.sim.road.laneX(0),
+            startY: caseRecord.sim.cars[0].y,
+            minY: caseRecord.sim.cars[0].y,
             maxDrift: 0,
             maxYaw: 0,
           },
@@ -807,19 +1024,22 @@
         const sim = inst.cases[0].sim;
         const car = sim.cars[0];
         if (car.done || car.seg !== "main") return;
+        inst.state.minY = Math.min(inst.state.minY, car.y);
         inst.state.maxDrift = Math.max(inst.state.maxDrift, Math.abs(car.x - inst.state.center));
         inst.state.maxYaw = Math.max(inst.state.maxYaw, Math.abs(car.th + Math.PI / 2));
       },
       metrics(inst) {
         return {
+          Progress: (inst.state.startY - inst.state.minY).toFixed(2) + "px",
           "Max drift": inst.state.maxDrift.toFixed(2) + "px",
           "Max yaw": ((inst.state.maxYaw * 180) / Math.PI).toFixed(2) + " deg",
         };
       },
       evaluate(inst) {
         const sim = inst.cases[0].sim;
+        const progress = inst.state.startY - inst.state.minY;
         const pass =
-          sim.finished &&
+          progress >= 200 &&
           legal(sim) &&
           sim.testMetrics.yieldEnterCount === 0 &&
           sim.testMetrics.maneuverEnterCount === 0 &&
@@ -1787,7 +2007,7 @@
       },
     },
     {
-      id: "AE",
+      id: "AG",
       section: "mixed",
       family: "known_red",
       name: "Batch grant stays stable until clearance",
@@ -2001,6 +2221,196 @@
       verdict(inst) {
         const sim = inst.cases[0].sim;
         return sim.testMetrics.wallEscapeCount === 0 && sim.testMetrics.overlapCount === 0;
+      },
+    },
+    // ─── MANEUVER OVERHAUL RED TESTS ─────────────────────────────────────────
+    {
+      id: "AC",
+      section: "mixed",
+      family: "guard_green", // FAIL today (bug), PASS after fix
+      name: "Yield false-trigger — yield car must NOT accumulate noProgressTicks while batch car is progressing",
+      proof:
+        "Bug: line 619 traffic_core.js — blockedForProgress includes trafficMode==='yield'. " +
+        "The crossing car (lane 1, target=left) enters yield mode while the 10-car convoy crosses. " +
+        "With the bug: yield sets blockedForProgress=true → noProgressTicks accumulates every tick, " +
+        "even when batch cars are actively progressing (noProgressTicks < 60). " +
+        "Fix (F1-T2): batch-partner progress tracking — when any batch car has " +
+        "noProgressTicks < NO_PROGRESS_THRESH, suppress yield car's accumulation. " +
+        "After fix: yield car's noProgressTicks stays 0 while any batch car is progressing. " +
+        "Test halts when: yield car has noProgressTicks > 0 AND any batch car has noProgressTicks < 60. " +
+        "Crossing car at y=460 — within BATCH_APPROACH_DIST=170 of fork immediately — guarantees " +
+        "it enters yield the moment the batch activates. Previous y=650 was too far: convoy cleared " +
+        "via trailing before crossing car reached nearFork zone.",
+      build() {
+        // Deterministic 10+1 convoy scenario:
+        //   Lane 0 (left): 10 cars going RIGHT — car at y=430 is closest to fork (gets batch priority)
+        //   Lane 1 (right): 1 car going LEFT  — starts at y=460 (within nearFork zone immediately)
+        // BATCH_APPROACH_DIST=170: fork≈y300, so nearFork boundary ≈ y470. Crossing car at y=460
+        // is inside nearFork from t≈0, ensuring yield fires before convoy clears.
+        // With bug: crossing car enters maneuver at ~60t (convoy still progressing) → FAIL.
+        // With fix: crossing car's noProgressTicks stays 0 while any batch car is progressing → PASS.
+        return {
+          cases: [
+            customCase("2L 10+1 convoy yield", {
+              lanes: 2,
+              seed: 101,
+              maxTicks: 600,
+              stepsPerFrame: 5,
+              cars: [
+                // Left-lane convoy (lane 0): all want to go RIGHT — cross to right branch
+                { id: 0, lane: 0, target: "right", y: 430 }, // Ahead — gets batch priority first
+                { id: 1, lane: 0, target: "right", y: 460 },
+                { id: 2, lane: 0, target: "right", y: 490 },
+                { id: 3, lane: 0, target: "right", y: 520 },
+                { id: 4, lane: 0, target: "right", y: 550 },
+                { id: 5, lane: 0, target: "right", y: 580 },
+                { id: 6, lane: 0, target: "right", y: 610 },
+                { id: 7, lane: 0, target: "right", y: 640 },
+                { id: 8, lane: 0, target: "right", y: 670 },
+                { id: 9, lane: 0, target: "right", y: 700 },
+                // Right-lane crossing car (lane 1): wants to go LEFT — must yield to convoy
+                // Placed at y=460: within BATCH_APPROACH_DIST of fork, enters yield immediately
+                { id: 10, lane: 1, target: "left", y: 460 },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      stop(inst) {
+        // Violation: yield car has noProgressTicks > 0 WHILE any batch car has noProgressTicks < 60.
+        // With bug: yield sets blockedForProgress=true → noProgressTicks accumulates immediately.
+        //   After ~5-10 ticks of yield: noProgressTicks > 0, batch cars still progressing → FIRES.
+        // With fix (batch-partner tracking): yield car's noProgressTicks is suppressed while
+        //   any batch car is progressing → stays at 0 → no violation.
+        const sim = inst.cases[0].sim;
+        const state = inst.state;
+        if (state.firstViolation) return true;
+
+        const yieldCar = sim.cars.find(
+          (c) => !c.fixed && !c.done && c.trafficMode === "yield" && c.noProgressTicks > 0
+        );
+        if (yieldCar) {
+          const batchCarProgressing = sim.cars.find(
+            (c) => !c.fixed && !c.done && c.trafficMode === "batch" && c.noProgressTicks < 60
+          );
+          if (batchCarProgressing) {
+            state.firstViolation = {
+              tick: sim.ticks,
+              yieldCarId: yieldCar.id,
+              yieldNoProgress: yieldCar.noProgressTicks,
+              batchCarId: batchCarProgressing.id,
+              batchNoProgress: batchCarProgressing.noProgressTicks,
+            };
+            return true; // Stop immediately
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const state = inst.state;
+        const crossingCar = sim.cars.find((c) => c.target === "left" && !c.fixed);
+        const v = state.firstViolation;
+        return {
+          "Yield events": String(sim.testMetrics.yieldEnterCount || 0),
+          "Maneuver events": String(sim.testMetrics.maneuverEnterCount || 0),
+          "Stopped at tick": String(sim.ticks),
+          "Crossing car mode": crossingCar
+            ? crossingCar.trafficMode + (crossingCar.maneuvering ? "+M" : "")
+            : "n/a",
+          "Violation": v
+            ? `t=${v.tick} yield-car${v.yieldCarId} noP=${v.yieldNoProgress.toFixed(1)} | batch-car${v.batchCarId} noP=${v.batchNoProgress.toFixed(1)}`
+            : "none",
+        };
+      },
+      verdict(inst) {
+        // FAIL today: yield car accumulates noProgressTicks while batch car is actively progressing.
+        // PASS after fix: batch-partner check suppresses accumulation → noProgressTicks stays 0.
+        return !inst.state.firstViolation;
+      },
+    },
+    {
+      id: "AE",
+      section: "mixed",
+      family: "guard_green", // FAIL today (bug), PASS after F1-T2 fix
+      name: "Yield patience — crossing car must NOT enter maneuver while convoy batch is active",
+      proof:
+        "2+1 convoy scenario (same geometry as card AC). " +
+        "2 convoy cars (lane 0, target=right, y=430,460) + crossing car (lane 1, target=left, y=460). " +
+        "Crossing car enters yield while convoy batch is active. " +
+        "Assert-1: crossing car finishes (eventually gets its batch turn after convoy clears). " +
+        "Assert-2: crossing car has 0 maneuver events — noProgressTicks was suppressed by F1-T2. " +
+        "With bug: yield → blockedForProgress=true → crossing car accumulates noProgressTicks → " +
+        "enters maneuver at ~60t while convoy is still crossing → maneuver event fires → FAIL. " +
+        "With fix: batch-partner check suppresses accumulation → stays in yield → 0 maneuver events → PASS.",
+      build() {
+        return {
+          cases: [
+            customCase("2L 2+1 yield patience", {
+              lanes: 2,
+              seed: 101,
+              maxTicks: 600,
+              stepsPerFrame: 5,
+              cars: [
+                // 2-car convoy ahead of crossing car
+                { id: 0, lane: 0, target: "right", y: 430 },
+                { id: 1, lane: 0, target: "right", y: 460 },
+                // Crossing car: enters yield while convoy in batch
+                { id: 2, lane: 1, target: "left", y: 460 },
+              ],
+            }),
+          ],
+          state: { finishTimes: {}, failReason: null },
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        const state = inst.state;
+        for (const car of sim.cars) {
+          if (car.done && !(car.id in state.finishTimes)) {
+            state.finishTimes[car.id] = sim.ticks;
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const state = inst.state;
+        const crossingCar = sim.cars.find((c) => c.target === "left" && !c.fixed);
+        const maneuverEvents = sim.testEvents.filter(
+          (e) => e.type === "maneuver_enter" && crossingCar && e.carId === crossingCar.id
+        ).length;
+        return {
+          "Crossing car done": crossingCar
+            ? String(crossingCar.done) + " @t=" + (state.finishTimes[crossingCar.id] || "DNF")
+            : "n/a",
+          "Crossing car maneuver events": String(maneuverEvents),
+          "Fail reason": state.failReason || "none",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const state = inst.state;
+        const crossingCar = sim.cars.find((c) => c.target === "left" && !c.fixed);
+
+        // Assertion 1: crossing car finished
+        if (!crossingCar || !crossingCar.done) {
+          state.failReason = "Assert-1 FAIL: crossing car (target=left) did not finish";
+          return false;
+        }
+
+        // Assertion 2: crossing car triggered 0 maneuver events
+        // (F1-T2: noProgressTicks stays suppressed while any batch car is progressing)
+        const maneuverEvents = sim.testEvents.filter(
+          (e) => e.type === "maneuver_enter" && e.carId === crossingCar.id
+        ).length;
+        if (maneuverEvents > 0) {
+          state.failReason = `Assert-2 FAIL: crossing car entered maneuver ${maneuverEvents} time(s) — noProgressTicks was NOT suppressed`;
+          return false;
+        }
+
+        return true;
       },
     },
   ];

@@ -567,6 +567,7 @@
         const delta = progress - (c.lastProgress || progress);
         c.pathIdx = pq0.idx; c._pq = pq0;
         c._progress = progress; c._progressDelta = delta;
+        c._cachedHasForwardMove = undefined;
         c.stuckTicks = c.noProgressTicks;
         c.batchId = null; c.batchTarget = ''; c.primaryBlockerId = null; c.prioritySignal = false; c.zoneYielding = false;
         c.blockingKind = 'none'; c.plannerMode = 'nominal';
@@ -656,10 +657,11 @@
           const perpAngle = c.th + Math.PI / 2;
           c.maneuverPerpDir = { x: Math.cos(perpAngle) * sign, y: Math.sin(perpAngle) * sign };
         }
-
-        const canExitManeuverNow = this._hasLegalForwardProgressMove(c, active, rd, dt);
-        c._cachedHasForwardMove = canExitManeuverNow;
         const canEnterManeuver = activeManeuverCount < MAX_ACTIVE_MANEUVERS;
+        const shouldProbeForward =
+          c.maneuvering ||
+          (!c.done && blockedForProgress && c.trafficMode !== 'batch' && c.noProgressTicks >= NO_PROGRESS_THRESH && canEnterManeuver);
+        const canExitManeuverNow = shouldProbeForward ? this._getCachedForwardProgressMove(c, active, rd, dt) : false;
         if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= NO_PROGRESS_THRESH && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
           c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
           c.plannerMode = 'traffic';
@@ -680,8 +682,8 @@
               const lat = -dx * Math.sin(c.th) + dy * Math.cos(c.th);
               if (fwd < 0 && Math.abs(lat) < 20) {
                 if (o.trafficMode === 'hold_exit') continue;
-                if (this._hasLegalForwardProgressMove(o, active, rd, dt)) continue;
                 if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) continue;
+                if (this._getCachedForwardProgressMove(o, active, rd, dt)) continue;
                 o.maneuvering = true;
                 o.trafficMode = 'maneuver';
                 o.maneuverTimer = 0;
@@ -1318,6 +1320,13 @@
       return false;
     }
 
+    _getCachedForwardProgressMove(c, active, rd, dt) {
+      if (c._cachedHasForwardMove === undefined) {
+        c._cachedHasForwardMove = this._hasLegalForwardProgressMove(c, active, rd, dt);
+      }
+      return c._cachedHasForwardMove;
+    }
+
     _candidateSet(c, trafficContext, dt) {
       const desiredSpeed = trafficContext.desiredSpeed;
       const desiredSteer = trafficContext.desiredSteer;
@@ -1444,7 +1453,7 @@
     _chooseTrafficMove(c, dt, rd, active) {
       const blocker = this._findPrimaryBlocker(c, active);
       c.primaryBlockerId = blocker ? blocker.id : null;
-      const forwardClear = c.maneuvering ? (c._cachedHasForwardMove !== undefined ? c._cachedHasForwardMove : this._hasLegalForwardProgressMove(c, active, rd, dt)) : false;
+      const forwardClear = c.maneuvering ? this._getCachedForwardProgressMove(c, active, rd, dt) : false;
       const steerBias = Math.sign(c.desSt) || (c.blinker !== 0 ? c.blinker : 1);
       const steerTargets = [
         c.desSt,
