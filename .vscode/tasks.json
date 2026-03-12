@@ -1,0 +1,54 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "stage traffic lane changes",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"add",
+				"-A"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "profile planner hotspots",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"profile_planner_hotspots.js",
+				"--lanes",
+				"3",
+				"--cars",
+				"40",
+				"--split",
+				"50",
+				"--seed",
+				"307",
+				"--ticks",
+				"400",
+				"--dt",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run traffic guards",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"run_traffic_suite.js",
+				"--id",
+				"P",
+				"--id",
+				"S",
+				"--id",
+				"AA",
+				"--id",
+				"X",
+				"--strict"
+			],
+			"isBackground": false
+		}
+	]
+}

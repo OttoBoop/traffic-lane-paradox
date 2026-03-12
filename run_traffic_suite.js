@@ -13,6 +13,13 @@ function parseArgs(argv) {
     strict: false,
     json: false,
   };
+  const mergeValue = (key, value) => {
+    if (typeof out[key] === "string") {
+      out[key] = out[key] ? `${out[key]},${value}` : value;
+      return;
+    }
+    out[key] = value;
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--strict") {
@@ -23,7 +30,7 @@ function parseArgs(argv) {
       const key = arg.slice(2);
       const next = argv[i + 1];
       if (next && !next.startsWith("--")) {
-        out[key] = next;
+        mergeValue(key, next);
         i++;
       }
     }
@@ -80,6 +87,16 @@ function summarizeRow(record) {
   ].join(" ");
 }
 
+function findDuplicateIds(records) {
+  const counts = new Map();
+  records.forEach((record) => {
+    counts.set(record.id, (counts.get(record.id) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([id, count]) => ({ id, count }));
+}
+
 const args = parseArgs(process.argv.slice(2));
 const root = __dirname;
 const sandbox = loadBrowserBundle([
@@ -95,6 +112,7 @@ const filters = {
   gates: splitCsv(args.gate),
 };
 const selected = suite.filterTests(filters);
+const duplicateIds = findDuplicateIds(selected);
 
 if (!selected.length) {
   console.error("No traffic tests matched the provided filters.");
@@ -134,6 +152,7 @@ if (args.json) {
       {
         strict: args.strict,
         selected: records.length,
+        duplicateIds,
         guardFailures: guardFailures.length,
         strictFailures: strictFailures.length,
         results: records,
@@ -143,6 +162,13 @@ if (args.json) {
     )
   );
 } else {
+  if (duplicateIds.length) {
+    console.warn(
+      `Warning: duplicate selected test IDs detected: ${duplicateIds
+        .map(({ id, count }) => `${id}×${count}`)
+        .join(", ")}`
+    );
+  }
   console.log("ID   GATE       EXPECT  ACT   SHOW  TIME           NOTE");
   records.forEach((record) => console.log(summarizeRow(record)));
   console.log(

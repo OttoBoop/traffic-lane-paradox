@@ -17,6 +17,7 @@
   const SPAWN_SPACING = CAR_L + SPAWN_CLEAR_GAP;
   const PROJ_MARGIN = 2;
   const PROJ_BROAD_PHASE = 60;
+  const PROJ_BROAD_PHASE_SQ = PROJ_BROAD_PHASE * PROJ_BROAD_PHASE;
   const INTERSECT_WIDEN = 1.3;
   const MAIN_LANE_SCALE = 1.10;
   const BRANCH_LANE_SCALE = 1.25;
@@ -1250,10 +1251,45 @@
       return pose;
     }
 
+    _relevantNeighbors(c, active, extraRange = 30) {
+      const range = PROJ_BROAD_PHASE + extraRange;
+      const rangeSq = range * range;
+      const neighbors = [];
+      for (const o of active) {
+        if (o.id === c.id || o.done) continue;
+        const dx = c.x - o.x, dy = c.y - o.y;
+        if (dx * dx + dy * dy > rangeSq) continue;
+        neighbors.push(o);
+      }
+      return neighbors;
+    }
+
+    _relevantLegalNeighbors(c, active, extraRange = 30) {
+      const range = PROJ_BROAD_PHASE + extraRange;
+      const rangeSq = range * range;
+      const overlapNeighbors = [];
+      const gapNeighbors = [];
+      for (const o of active) {
+        if (o.id === c.id || o.done) continue;
+        const dx = c.x - o.x, dy = c.y - o.y;
+        if (dx * dx + dy * dy > rangeSq) continue;
+        overlapNeighbors.push(o);
+        if (c.seg !== o.seg) continue;
+        if (c.seg === 'main') {
+          if (c.lane !== o.lane) continue;
+        } else if (c.pathKey !== o.pathKey) {
+          continue;
+        }
+        gapNeighbors.push(o);
+      }
+      return { overlapNeighbors, gapNeighbors };
+    }
+
     _poseOverlapsCars(c, pose, active, margin = PROJ_MARGIN) {
       for (const o of active) {
         if (o.id === c.id || o.done) continue;
-        if (Math.hypot(pose.x - o.x, pose.y - o.y) > PROJ_BROAD_PHASE) continue;
+        const dx = pose.x - o.x, dy = pose.y - o.y;
+        if (dx * dx + dy * dy > PROJ_BROAD_PHASE_SQ) continue;
         if (satOverlapMargin(pose.x, pose.y, pose.th, o.x, o.y, o.th, margin)) return true;
       }
       return false;
@@ -1261,7 +1297,8 @@
 
     _poseOverlapsCarsNeighbors(pose, neighbors, margin = PROJ_MARGIN) {
       for (const o of neighbors) {
-        if (Math.hypot(pose.x - o.x, pose.y - o.y) > PROJ_BROAD_PHASE) continue;
+        const dx = pose.x - o.x, dy = pose.y - o.y;
+        if (dx * dx + dy * dy > PROJ_BROAD_PHASE_SQ) continue;
         if (satOverlapMargin(pose.x, pose.y, pose.th, o.x, o.y, o.th, margin)) return true;
       }
       return false;
@@ -1282,19 +1319,29 @@
     _isLegalPose(c, pose, rd, active, margin = PROJ_MARGIN) {
       if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
       if (this._poseOverlapsCars(c, pose, active, margin)) return false;
+      const poseCar = { ...c, x: pose.x, y: pose.y, th: pose.th };
       for (const o of active) {
         if (o.id === c.id || o.done) continue;
-        const gap = this._sameLaneRuntimeGap({ ...c, x: pose.x, y: pose.y, th: pose.th }, o);
+        if (poseCar.seg !== o.seg) continue;
+        if (poseCar.seg === 'main') {
+          if (poseCar.lane !== o.lane) continue;
+        } else if (poseCar.pathKey !== o.pathKey) {
+          continue;
+        }
+        const gap = this._sameLaneRuntimeGap(poseCar, o);
         if (gap !== Infinity && gap < HARD_FOLLOW_GAP) return false;
       }
       return true;
     }
 
     _isLegalPoseNeighbors(c, pose, rd, neighbors, margin = PROJ_MARGIN) {
+      const overlapNeighbors = Array.isArray(neighbors) ? neighbors : neighbors.overlapNeighbors;
+      const gapNeighbors = Array.isArray(neighbors) ? neighbors : neighbors.gapNeighbors;
       if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
-      if (this._poseOverlapsCarsNeighbors(pose, neighbors, margin)) return false;
-      for (const o of neighbors) {
-        const gap = this._sameLaneRuntimeGap({ ...c, x: pose.x, y: pose.y, th: pose.th }, o);
+      if (this._poseOverlapsCarsNeighbors(pose, overlapNeighbors, margin)) return false;
+      const poseCar = { ...c, x: pose.x, y: pose.y, th: pose.th };
+      for (const o of gapNeighbors) {
+        const gap = this._sameLaneRuntimeGap(poseCar, o);
         if (gap !== Infinity && gap < HARD_FOLLOW_GAP) return false;
       }
       return true;
@@ -1306,11 +1353,12 @@
       const baseProgress = this._pathProgress(c);
       const conflictProgress = c._conflictProgress ?? null;
       const targetClearance = c._targetClearance ?? 1e9;
+      const neighbors = this._relevantLegalNeighbors(c, active, 30);
       for (const speed of [desiredSpeed, desiredSpeed * 0.75, desiredSpeed * 0.5, desiredSpeed * 0.25]) {
         if (speed <= 0.05) continue;
         for (const steer of [desiredSteer, desiredSteer * 0.5, 0]) {
           const pose = this._candidatePose(c, speed, steer, dt);
-          if (!this._isLegalPose(c, pose, rd, active)) continue;
+          if (!this._isLegalPoseNeighbors(c, pose, rd, neighbors)) continue;
           const nextProgress = this._pathProgress(c, pose);
           const enterConflict = conflictProgress !== null && nextProgress >= conflictProgress - 2;
           if (enterConflict && c.trafficMode !== 'batch' && targetClearance < EXIT_CLEARANCE) continue;
@@ -1349,22 +1397,45 @@
         for (const scale of [0.4, 0.25, 0.15]) addAttempt(speedSign * Math.max(speedMag * scale, 0.12), trafficContext.blockerSteer);
       }
       if (c.trafficMode === 'maneuver') {
-        for (const steer of trafficContext.targetSteers) for (const scale of [0.4, 0.25, 0.15]) {
+        const maneuverSteers = [];
+        const addManeuverSteer = (steer) => {
+          if (typeof steer !== 'number' || !Number.isFinite(steer)) return;
+          if (maneuverSteers.some((existing) => Math.abs(existing - steer) < 1e-3)) return;
+          maneuverSteers.push(steer);
+        };
+        addManeuverSteer(desiredSteer);
+        addManeuverSteer(trafficContext.blockerSteer);
+        for (const steer of trafficContext.targetSteers.slice(-3)) addManeuverSteer(steer);
+        let widestSteer = null;
+        for (const steer of trafficContext.targetSteers) {
+          if (widestSteer === null || Math.abs(steer) > Math.abs(widestSteer)) widestSteer = steer;
+        }
+        addManeuverSteer(widestSteer);
+        addManeuverSteer(MAX_ST);
+        addManeuverSteer(-MAX_ST);
+        for (const steer of maneuverSteers) for (const scale of [0.35, 0.2]) {
           addAttempt(Math.max(speedMag * scale, 0.12), steer);
         }
-        for (const revMag of [0.15, 0.25, 0.4]) {
+        for (const revMag of [0.2, 0.35]) {
           const rev = -Math.max(speedMag * revMag, REVERSE_SPD);
-          for (const steer of trafficContext.targetSteers) addAttempt(rev, steer);
+          for (const steer of maneuverSteers) addAttempt(rev, steer);
         }
-        addAttempt(Math.max(speedMag * 0.12, 0.12), MAX_ST * 1.5);
-        addAttempt(Math.max(speedMag * 0.12, 0.12), -MAX_ST * 1.5);
       }
       addAttempt(0, desiredSteer);
       return attempts.map(a => ({ speed: a.speed, steer: a.steer, pose: this._candidatePose(c, a.speed, a.steer, dt) }));
     }
 
+    _ensureCandidatePathData(c, candidate) {
+      if (candidate.pathQuery) return candidate.pathQuery;
+      const pq = pathQuery(c.path, candidate.pose.x, candidate.pose.y, c.pathIdx);
+      candidate.pathQuery = pq;
+      candidate.pathProgress = pq.idx * PATH_SP;
+      return pq;
+    }
+
     _scoreCandidate(c, candidate, trafficContext) {
-      const progress = this._pathProgress(c, candidate.pose) - trafficContext.baseProgress;
+      const pq = this._ensureCandidatePathData(c, candidate);
+      const progress = candidate.pathProgress - trafficContext.baseProgress;
       let score = progress * (c.trafficMode === 'maneuver' ? (trafficContext.forwardClear ? 12 : 0.5) : 8);
       score -= Math.abs(candidate.steer - trafficContext.desiredSteer) * (c.trafficMode === 'maneuver' ? 0.2 : 0.8);
       score -= Math.abs(candidate.speed - trafficContext.desiredSpeed) * (c.trafficMode === 'maneuver' ? 0.03 : 0.1);
@@ -1398,7 +1469,6 @@
         if (trafficContext.forwardClear && progress >= PROGRESS_EPS * 0.5) score += 8;
         if (trafficContext.forwardClear && candidate.speed < 0) score -= 8;
       }
-      const pq = pathQuery(c.path, candidate.pose.x, candidate.pose.y, c.pathIdx);
       let hErr = pq.ang - candidate.pose.th; while (hErr > Math.PI) hErr -= 2 * Math.PI; while (hErr < -Math.PI) hErr += 2 * Math.PI;
       score -= Math.abs(hErr) * (c.trafficMode === 'maneuver' ? 0.25 : 1.5);
       return score;
@@ -1406,10 +1476,11 @@
 
     _chooseNominalMove(c, dt, rd, active) {
       const currentErr = this._trackingError(c, { x: c.x, y: c.y, th: c.th });
+      const neighbors = this._relevantLegalNeighbors(c, active, 30);
       const speeds = [1, 0.9, 0.75, 0.6, 0.45, 0.3, 0.15, 0].map(scale => scale === 0 ? 0 : Math.max(0, c.desSpd * scale));
       for (const speed of speeds) {
         const pose = this._candidatePose(c, speed, c.desSt, dt);
-        if (!this._isLegalPose(c, pose, rd, active)) continue;
+        if (!this._isLegalPoseNeighbors(c, pose, rd, neighbors)) continue;
         const err = this._trackingError(c, pose);
         if (err.cte > currentErr.cte + 0.5) continue;
         if (err.hErr > currentErr.hErr + 0.05) continue;
@@ -1422,12 +1493,11 @@
       let best = { pose: { x: c.x, y: c.y, th: c.th }, speed: 0, steer: c.steer, score: -1e9 };
       let legalCount = 0;
       const candidates = this._candidateSet(c, trafficContext, dt);
-      const neighbors = trafficContext.active.filter(o =>
-        o.id !== c.id && !o.done && Math.hypot(c.x - o.x, c.y - o.y) < PROJ_BROAD_PHASE + 30
-      );
+      const neighbors = this._relevantLegalNeighbors(c, trafficContext.active, 30);
       for (const candidate of candidates) {
         if (!this._isLegalPoseNeighbors(c, candidate.pose, trafficContext.rd, neighbors)) continue;
-        candidate.enterConflict = trafficContext.conflictProgress !== null && this._pathProgress(c, candidate.pose) >= trafficContext.conflictProgress - 2;
+        if (trafficContext.conflictProgress !== null) this._ensureCandidatePathData(c, candidate);
+        candidate.enterConflict = trafficContext.conflictProgress !== null && candidate.pathProgress >= trafficContext.conflictProgress - 2;
         if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
         legalCount++;
         candidate.score = this._scoreCandidate(c, candidate, trafficContext);
@@ -1437,7 +1507,8 @@
       if (legalCount === 0) {
         for (const candidate of candidates.slice(0, 20)) {
           if (!this._isLegalPoseNeighbors(c, candidate.pose, trafficContext.rd, neighbors, 0)) continue;
-          candidate.enterConflict = trafficContext.conflictProgress !== null && this._pathProgress(c, candidate.pose) >= trafficContext.conflictProgress - 2;
+          if (trafficContext.conflictProgress !== null) this._ensureCandidatePathData(c, candidate);
+          candidate.enterConflict = trafficContext.conflictProgress !== null && candidate.pathProgress >= trafficContext.conflictProgress - 2;
           if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
           legalCount++;
           candidate.score = this._scoreCandidate(c, candidate, trafficContext);

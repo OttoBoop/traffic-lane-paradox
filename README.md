@@ -2,116 +2,173 @@
 
 ## Purpose
 
-This simulation demonstrates how adding more lanes to a road can paradoxically increase travel time when vehicles must cross paths at a Y-intersection. The project is an interactive HTML/JavaScript application that runs entirely in the browser, with no server dependencies.
+This simulation demonstrates how adding more lanes to a road can paradoxically increase travel time when vehicles must cross paths at a Y-intersection. The project is an interactive HTML/JavaScript application that runs entirely in the browser with no server dependencies.
 
-The user sets up side-by-side simulations with different lane counts (1 lane, 2 lanes, 3 lanes, etc.) and observes that single-lane traffic flows freely while multi-lane traffic creates crossing conflicts at the fork, slowing everyone down. This is a visual demonstration of a concept related to Braess's paradox in traffic network theory.
+Users set up side-by-side simulations with different lane counts (1 lane, 2 lanes, 3 lanes, etc.) and observe that single-lane traffic flows freely while multi-lane traffic creates crossing conflicts at the fork, slowing everyone down. This is a visual demonstration of a concept related to Braess's paradox in traffic network theory.
 
 ---
 
 ## Architecture
 
-The simulation is a single HTML file containing all CSS, JavaScript, and rendering logic. There is no build system, no external dependencies beyond a Google Fonts import, and no module structure. Everything lives in one `<script>` tag.
+The simulation is a single HTML file (`traffic_v18.html`) backed by a shared simulation engine (`traffic_core.js`). No build system, no external dependencies beyond a Google Fonts import. The renderer runs in-browser; the simulation core also runs headlessly in Node.js for testing.
 
 ### Core Classes
 
-**Road** constructs the road geometry for a given lane count and canvas size. It generates independent cubic bezier paths for every lane-branch combination, precomputes conflict zones where crossing paths intersect, and generates road boundary segments. The road geometry adapts to the canvas dimensions, which means behavior can vary between phone screens and desktop.
+**Road** constructs the road geometry for a given lane count and canvas size. It generates independent cubic bezier paths for every lane-branch combination, precomputes conflict zones where crossing paths intersect, and generates road boundary segments for wall collision detection. Road geometry adapts to canvas dimensions — behavior can vary between phone and desktop.
 
-**Car** is a data object holding position, heading, speed, steering angle, lane assignment, target branch, and various state flags (yielding, maneuvering, merging, stuck timer).
+**Car** is a data object holding position (`x`, `y`, `th`), motion (`speed`, `steer`, `desSpd`, `desSt`), path tracking (`path`, `pathKey`, `pathIdx`, `prevCTE`), and traffic coordination state including `trafficMode` ('free', 'commit', 'yield', 'batch', 'maneuver', 'hold_exit'), `noProgressTicks`, `batchId`, `primaryBlockerId`, `maneuvering`, `maneuverPhase`, `maneuverTimer`, and `maneuverPerpDir`.
 
-**Sim** runs the simulation tick loop. Each tick executes approximately 20 ordered steps including lane detection, reservation management, MOBIL lane changes, Stanley controller steering, IDM following distance, cone detection, wall avoidance, maneuvering, and the bicycle model position update. The execution order matters — later steps can override earlier ones, and the bicycle model in step 14 is the only system that modifies car positions.
+**Sim** runs the simulation tick loop. Each tick executes an ordered series of steps including lane detection, batch scheduler updates, traffic mode assignment, blocker classification and maneuver entry/exit logic, Stanley controller steering, IDM following distance, cone detection, wall avoidance, maneuver wobble overrides, branch speed floor, and finally the cost-based legal move selector that integrates the bicycle model. Step ordering matters — later steps override earlier ones.
 
-**Ren** renders the simulation to a canvas element, drawing the road surface, lane markings, stop line, and cars.
+**Ren** renders to an HTML5 canvas in two themes: `classic` (dark road on dark background) and `rioSatellite` (colorful aerial map style). The rendered car shape and the SAT collision rectangle share the same constants — what the user sees is what collides.
 
 ### Key Design Principles
 
-**Position changes only through the bicycle model.** No system directly modifies a car's x, y, or heading. All systems influence speed and steering angle, which the bicycle model then integrates into position changes. This was established in v14 after multiple failed attempts with ORCA velocity planning and SAT push-apart that produced physically impossible lateral movements.
+**Position changes only through the bicycle model.** No system directly modifies a car's `x`, `y`, or heading. All systems influence `desSpd` and `desSt`, which feed into the cost-based planner, which then calls the bicycle model to integrate position.
 
-**Cars are rectangles with exact visual-collision match.** The rendered car shape and the SAT collision rectangle use the same constants (CAR_L, CAR_W). What the user sees is what collides.
+**Cars are rectangles with exact visual-collision match.** The rendered car shape and the SAT collision rectangle use the same constants (`CAR_L = 22`, `CAR_W = 13`). Zero discrepancy between what you see and what collides.
 
-**The forward cone is directional.** A car behind you is not a conflict. The cone detection system only fires for cars that are ahead and encroaching on the detecting car's lane. Same-direction same-lane cars are handled by IDM, not the cone.
+**Cost-based local motion planner selects the best legal move.** Each tick, every active car generates a set of (speed, steer) candidates. Each candidate is projected through the bicycle model, checked for legality (inside road bounds, no overlap with higher-priority committed poses or current poses of other cars), and scored. The highest-scoring legal candidate wins. In maneuver mode the candidate set is expanded to include reverse speeds and wide steer sweeps. This is the `_chooseLegalMove → _chooseTrafficMove → _chooseBestLegalCandidate` pipeline.
 
-**The reservation system governs fork crossing priority.** When two paths cross at the fork, only one car passes at a time. The yielding car stops before the conflict zone. The reservation is granted based on estimated arrival time with a persistent tiebreak for simultaneous arrivals.
+**Fork batch scheduler coordinates conflict zone access.** When two paths cross at the fork, the scheduler grants access to batches of up to 2 compatible same-target cars. Starvation counters prevent one branch from monopolizing the fork. Cars check downstream branch clearance before entering the conflict zone; if the target branch is full, the car enters `hold_exit` and waits before the zone.
 
-**Branch speed floor prevents accordion cascade.** On branches, if the gap to the car ahead exceeds the IDM minimum gap, speed is forced to v0. This prevents tiny IDM fluctuations from cascading through long queues into visible traffic jams.
+**Traffic mode state machine drives coordination.** `trafficMode` progresses: `free` (open road) → `commit` (within `COMMIT_DIST = 90px` of fork, no voluntary lane changes) → `yield`/`batch`/`hold_exit` (fork access control) → `maneuver` (gridlock resolution). After crossing the fork, cars return to `free` on the branch.
 
-**dt subdivision prevents phone framerate issues.** When the browser delivers a large time step (low framerate phone), the simulation breaks it into sub-steps of maximum 1.0 each. This prevents the bicycle model from overshooting curves.
+**Maneuvering resolves gridlocks via wobble.** When `noProgressTicks` exceeds `NO_PROGRESS_THRESH = 60` for a car that is blocked and cannot find a forward legal move, the car enters maneuver mode. In maneuver mode, the car alternates through wobble phases (forward + perpendicular steer, reverse + opposite steer, etc.) to create clearance for the priority car. Up to `MAX_ACTIVE_MANEUVERS = 4` cars may maneuver simultaneously. Nearby stuck cars cascade into maneuver mode as well.
+
+**Branch speed floor prevents accordion cascade.** On branches, if the gap to the car ahead exceeds `IDM_S0` and speed is positive, speed is forced to `v0`. This prevents tiny IDM oscillations from cascading into visible jams.
+
+**dt subdivision prevents phone framerate issues.** When the browser delivers a large timestep (low framerate), the simulation breaks it into sub-steps of maximum 1.0 each, preventing the bicycle model from overshooting curves.
 
 ---
 
-## Current State (as of v18 visual)
+## Current State
 
-### What Works Well
+### What Works Reliably
 
-Single-lane traffic flows at full speed through both branches with zero slowdowns, verified by a monotonic speed test across multiple canvas sizes and dt values. The paradox demonstrates correctly: at 50/50 left-right split with 10 cars, 1 lane finishes faster than 2 or 3 lanes. Throughput scales correctly with lane count when all cars go to the same branch. Left-right symmetry is verified. Stress tests with 40+ cars complete successfully. The maneuvering system activates during gridlocks.
+- Single-lane monotonic speed: cars on a branch never slow down. The core paradox premise holds.
+- Zero SAT overlaps: hard constraint maintained across all configurations.
+- Zero wall escapes: cars never exit the road surface.
+- Left-right symmetry: 100% left and 100% right produce identical times.
+- Fork batch scheduler: prevents blocked-exit admission; same-target runs no longer produce false conflict violations.
+- Maneuvering: cars do wobble, reverse, and adjust angles to give way. Gridlocks can resolve.
 
-### What Needs Fixing (v18 plan)
+### Known Rough Edges
 
-Cars can still visually overlap each other because the SAT system reacts after overlap occurs rather than preventing it. The planned fix is a projection-based check that computes whether the next frame's positions would overlap and clamps speed preemptively.
+**Framerate lag with many cars.** The cost-based planner runs SAT legality checks for every candidate against all nearby cars, every tick, for every car. At high car counts (3+ lanes, 20+ cars) this becomes expensive and causes visible framerate drops. The computational cost scales with O(N × candidates × N) per tick.
 
-Cars can get stuck on walls because the wall avoidance system is reactive (steering override after proximity is detected) rather than predictive. The planned fix uses the same projection approach as car-car prevention.
+**Maneuver mode triggers too eagerly.** Cars sometimes enter maneuver mode when a reasonable forward passage exists. The trigger threshold and blocking conditions need tuning.
 
-Lane changes happen with insufficient safety distance, causing collisions. The planned fix enforces a minimum gap of 1.5x car length before MOBIL can initiate a lane change.
+**Maneuver mode exits too slowly.** Cars linger in maneuver mode longer than necessary. In some cases a single car gets permanently stuck in maneuver mode — unable to exit, holding up resolution of the gridlock it was supposed to help clear.
 
-The intersection zone is too narrow for larger cars to curve through without hitting lane boundaries. The planned fix widens lanes in the fork region.
-
-A coordinated maneuvering system is planned where yielding cars actively move aside when the priority car broadcasts its intent to pass. Blocking cars compute the perpendicular direction to the priority car's path and wobble forward/backward with max steering to create clearance. This cascades to neighboring cars as needed.
-
-### Visual State
-
-The road renders as a unified dark surface with dashed lane dividers on the main road and both branches. Inner branch edges are hidden in the intersection zone (computed dynamically from where the two inner edges geometrically separate) and drawn only on the branch portions where the two corridors are visually distinct. Outer branch edges are drawn fully. The fork point is at 50% of canvas height to give branches adequate visual space. Panels support horizontal scrolling and can be added or removed.
+**Throughput and paradox behavior under development.** In multi-lane mixed-traffic scenarios, the paradox demonstration and throughput scaling are not yet consistently meeting design targets. These are tuning goals, not safety issues.
 
 ---
 
 ## Testing Architecture
 
-Tests run headless in Node.js by extracting the simulation code from the HTML file and executing it without a browser. The renderer is excluded (tests stop at the line before `class Ren`). Tests use fixed seeds for reproducibility and run across multiple canvas sizes and dt values to catch resolution-dependent and framerate-dependent bugs.
+Tests share a registry of 25 labeled cards (A–Y) defined in `traffic_test_suite.js`. Two frontends consume the same registry:
 
-### Key Test Categories
+- `red_visual_tests.html` — browser dashboard with live simulation rendering per card
+- `run_traffic_suite.js` — Node.js CLI runner for headless automated checks
 
-**Monotonic speed (Test 3):** Single lane, 10 cars, 50/50 split. Every car on a branch must have monotonically non-decreasing speed. Any decrease above 0.001 is a failure. This is the most important test because it validates the simulation's core promise that single-lane traffic never slows down.
+Cards are tagged `guard_green` (must stay passing), `known_red` (expected failures until fixed), or `diagnostic` (observability — no hard pass/fail verdict).
 
-**Throughput scaling (Test 4):** 1L, 2L, 3L at 100% single branch. 2 lanes must complete within 15% of half the 1-lane time, 3 lanes within 15% of one-third.
+**To run a specific card:**
+```bash
+node run_traffic_suite.js --id S
+node run_traffic_suite.js --id AA
+```
 
-**Paradox (Test 5):** 1L, 2L, 3L at 50/50 split. 1 lane must finish fastest.
+**To run guard tests:**
+```bash
+node run_traffic_suite.js --id S --id X --id AA
+```
 
-**Zero overlap (Test 1):** 3 lanes, 20 cars, 50/50 split. Zero SAT overlap detections. Any detection indicates a physics bug.
+### Test Card Overview
 
-**Zero wall escape (Test 2):** Every frame, every car corner must be inside the road boundary. Any escape indicates a wall enforcement bug.
+| Range | Purpose |
+|-------|---------|
+| A–E   | Legacy red questions: progress accumulation, lateral escape, lane-change liveness, conflict hard-deadlock, hard constraint guard |
+| F–J   | Same-target stabilization: lane hold, 1L baseline, 2L/3L throughput, fork approach stability |
+| K–P   | Collision harness family: rear-end queue, merge safety, merge liveness, fork conflict, dense queue, dt-spike legality |
+| Q–Y   | Mixed-traffic and v20 acceptance: paradox race, completion, maneuver activation, progress trigger, merge safety under 50/50, spillback, fair alternation, late oscillation, stress completion |
 
-**Symmetry (Test 6):** 100% left vs 100% right must produce times within 15%.
+**Important:** Many cards were created quickly and have not gone through proper RED→GREEN TDD validation. Treat `diagnostic` cards as observability tools, not authoritative pass/fail gates. A future priority is running each card through a deliberate RED→GREEN cycle with human review and grouping cards into clear categories.
 
-Tests should always run at phone resolution (110x700) with dt=2 in addition to desktop resolution (200x500) with dt=1, because many bugs manifest only under phone conditions.
+### Hard Safety Guards (must always pass)
+
+- Zero overlap — no car may ever overlap another car
+- Zero wall escape — no car corner may exit the road surface
+- Single-lane monotonic branch speed — no car on a branch slows down
+- Visual-hitbox match — rendered shape equals SAT collision shape
+
+---
+
+## Known Issues and Future Work
+
+**Maneuver tuning.** Three distinct problems need addressing: the entry trigger fires too eagerly (even when forward passage is available), the exit condition clears too slowly (cars linger), and occasionally a single car gets permanently stuck in maneuver mode and cannot exit, blocking the gridlock from fully clearing.
+
+**Performance overhaul.** The planner's O(N²) SAT computation is the primary framerate bottleneck. Spatial partitioning (grid cells) would cut the effective N per SAT from all cars to ~4–6 nearby cars, reducing cost by ~6–8×.
+
+**Test classification.** A systematic RED→GREEN pass over all 25 cards is needed: run each card failing first, implement or fix, confirm green. Group cards into `guard_green` / `known_red` / `diagnostic` with confidence. Consider: forced-gridlock test (deliberately deadlock a fork, verify it clears within N ticks).
+
+**Paradox tuning.** In some multi-lane configs, 2L can complete faster than 1L. The paradox requires careful IDM and batch scheduler tuning to hold once multi-lane flow becomes efficient.
 
 ---
 
 ## Common Pitfalls
 
-**Changing IDM parameters without testing monotonic speed.** IDM_S0 and IDM_T control following distance. Too tight causes overlaps. Too loose causes massive headspace that makes single-lane traffic slower than multi-lane, breaking the paradox.
+**Changing IDM parameters without testing monotonic speed.** `IDM_S0 = 6` and `IDM_T = 2` control following distance. Too tight causes overlaps. Too loose creates headspace that makes single-lane traffic slower than multi-lane, breaking the paradox. Run the monotonic speed test (card G or the headless Test 3) before touching IDM constants.
 
-**Adding speed modifications after the bicycle model.** The bicycle model must be the last thing that changes position. Any speed or position modification after it violates the architectural contract and will cause bugs.
+**Adding speed modifications after the bicycle model.** The bicycle model must be the last step that changes position. The `_chooseLegalMove` call is final. Anything that modifies `x`, `y`, or `th` after that violates the architectural contract.
 
-**Testing only at dt=1 on a 200x500 canvas.** Many bugs are resolution-dependent or framerate-dependent. Phone conditions (110x700 canvas, dt=2-3) must always be tested.
+**Bypassing the planner for maneuver-mode cars.** The planner is the sole arbiter of maneuver candidates. Do not add direct speed or position overrides for maneuvering cars outside of `desSpd`/`desSt` — the planner must evaluate them as candidates so legality checks still apply.
 
-**Cone detection interfering with same-lane following.** The cone must skip same-direction cars in the same lane. IDM handles following. If the cone fires on a following car, it crushes speed to 20% and creates massive headspace. The lane-aware filter and same-direction skip are critical.
+**Testing only at one canvas size.** Many bugs are resolution-dependent or framerate-dependent. Always test at phone resolution (110×700, dt=2) in addition to desktop (200×500, dt=1).
 
-**Hardcoding visual parameters that depend on geometry.** Road dimensions, fork position, branch spread, and lane widths all adapt to canvas size. Visual elements like inner edge cutoff points must be computed dynamically, not hardcoded, or they will look wrong on different screen sizes.
+**Hardcoding visual parameters that depend on geometry.** Road dimensions, fork position, branch spread, and lane widths all adapt to canvas size. Visual elements must be computed dynamically or they will look wrong on different screen sizes.
+
+**Deploying changes to 3+ lane mixed-traffic without a visual check.** Headless tests cannot catch visual wobble issues or maneuver behavior. For any change touching the planner, maneuver logic, or batch scheduler, run a 3L/20-car 50/50 simulation in the browser and observe.
 
 ---
 
 ## Repository Layout
 
-The core simulation lives in `traffic_v18.html` and `traffic_core.js`. The renderer-focused visual checks are in `red_visual_tests.html`, and the current implementation plan is documented in `v18_plan.md`.
-
-This repository intentionally stays simple: open the HTML file in a browser to run the simulator, and use the plan document plus the README as the source of truth for behavior and constraints.
+| File | Purpose |
+|------|---------|
+| `traffic_v18.html` | Interactive browser UI — open this to run the simulator |
+| `traffic_core.js` | Simulation engine: Road, Car, Sim, Ren classes and all physics |
+| `traffic_test_suite.js` | Shared test card registry (A–Y), scenario definitions and verdict functions |
+| `run_traffic_suite.js` | Node.js CLI runner for headless test execution |
+| `red_visual_tests.html` | Browser visual regression dashboard (consumes `traffic_test_suite.js`) |
+| `v18_plan.md` | Full design history: resolved decisions, execution order, hitbox spec, maneuvering spec, v19/v20 divergence analysis. **Primary reference for architecture decisions.** |
+| `docs/DISCOVERY_Maneuver_Mode_Fix.md` | Root cause analysis of the maneuver trigger bug and fix approach |
+| `verify_fork_width_wall_sync.js` | Geometry helper for fork-width wall synchronization |
 
 ---
 
 ## How to Make Changes
 
-Read `v18_plan.md` first. It contains the resolved design decisions, the full execution order per tick (20 steps), the hitbox response scenarios, the maneuvering system specification, and the complete test plan.
+Read `v18_plan.md` first. It contains the full design rationale, the architectural decisions that were changed from the plan during implementation (v19 divergences), and the v20 traffic-handling layer specification.
 
-When modifying the simulation, always run at minimum the monotonic speed test and the throughput scaling test before deploying. These two tests catch the majority of regressions. Run the full 11-test suite before any major deployment.
+**Before any deployment:**
+- Run guard tests: `node run_traffic_suite.js --id S --id X --id AA`
+- Run the 3L/20-car 50/50 browser simulation visually
 
-When modifying the renderer, verify syntax with `new Function(scriptContent)` and run a basic simulation sanity check (does a 2-lane 10-car simulation complete?) before deploying. Visual changes cannot be tested headlessly — they require the user to review screenshots.
+**For planner changes** (`_candidateSet`, `_scoreCandidate`, `_chooseBestLegalCandidate`):
+- Test at phone resolution (110×700), dt=2, 3L, 20 cars minimum
+- Confirm zero overlaps and zero wall escapes still hold
 
-When adding new systems, define which step in the 20-step execution order the new system occupies, what inputs it reads, what outputs it modifies (speed and/or steering only), and how it interacts with adjacent steps. Add a targeted test that validates the specific behavior the new system provides.
+**For maneuver changes** (`maneuvering`, `noProgressTicks`, wobble phases):
+- Visual browser testing is essential — headless tests cannot catch visual wobble quality
+- Check entry rate (is maneuver triggering when it shouldn't?), exit rate (are cars clearing maneuver within ~60 ticks?), and stuck-car behavior (can any single car get permanently stuck?)
+
+**For renderer changes:**
+- Verify syntax with `new Function(scriptContent)` to catch parse errors headlessly
+- Run a basic 2L/10-car simulation to confirm rendering doesn't crash
+
+**For new systems:**
+- Define which step in the tick execution order the system occupies
+- Specify what inputs it reads and what it modifies (only `desSpd` and/or `desSt` before the planner call)
+- Add a targeted test card that validates the specific behavior
