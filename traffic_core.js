@@ -33,7 +33,9 @@
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
   const MAX_ACTIVE_MANEUVERS = 4;
+  const EARLY_EXIT_SCORE = 0.9;
   const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
+  const SINGLE_LANE_BASE_LW = 28;
 
   const RENDER_THEMES = {
     classic: {
@@ -195,7 +197,7 @@
   class Road {
     constructor(n, w, h) {
       this.n = n; this.w = w; this.h = h; this.cx = w / 2;
-      this.baseLw = n === 1 ? 22 : Math.max(22, Math.min(26, (w * 0.92) / Math.max(n, 1)));
+      this.baseLw = n === 1 ? SINGLE_LANE_BASE_LW : Math.max(22, Math.min(26, (w * 0.92) / Math.max(n, 1)));
       this.mainLw = this.baseLw * MAIN_LANE_SCALE;
       this.branchLw = this.baseLw * BRANCH_LANE_SCALE;
       this.lw = this.mainLw;
@@ -652,6 +654,7 @@
         }
 
         const canExitManeuverNow = this._hasLegalForwardProgressMove(c, active, rd, dt);
+        c._cachedHasForwardMove = canExitManeuverNow;
         const canEnterManeuver = activeManeuverCount < MAX_ACTIVE_MANEUVERS;
         if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= NO_PROGRESS_THRESH && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
           c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
@@ -1395,6 +1398,7 @@
         legalCount++;
         candidate.score = this._scoreCandidate(c, candidate, trafficContext);
         if (candidate.score > best.score) best = { ...candidate };
+        if (best.score >= EARLY_EXIT_SCORE) break;
       }
       if (legalCount === 0) {
         for (const candidate of candidates) {
@@ -1415,7 +1419,7 @@
     _chooseTrafficMove(c, dt, rd, active) {
       const blocker = this._findPrimaryBlocker(c, active);
       c.primaryBlockerId = blocker ? blocker.id : null;
-      const forwardClear = c.maneuvering ? this._hasLegalForwardProgressMove(c, active, rd, dt) : false;
+      const forwardClear = c.maneuvering ? (c._cachedHasForwardMove !== undefined ? c._cachedHasForwardMove : this._hasLegalForwardProgressMove(c, active, rd, dt)) : false;
       const steerBias = Math.sign(c.desSt) || (c.blinker !== 0 ? c.blinker : 1);
       const steerTargets = [
         c.desSt,
