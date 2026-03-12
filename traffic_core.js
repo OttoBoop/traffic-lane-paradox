@@ -616,9 +616,13 @@
         c.primaryBlockerId = blocker ? blocker.id : null;
         c.blockingKind = blockInfo.kind;
         c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
-        const forwardIntent = Math.max(c.speed, c.desSpd || 0);
         const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield';
-        if (this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done) c.noProgressTicks += dt;
+        let shouldAccumulate = this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done;
+        if (shouldAccumulate && c.trafficMode === 'yield') {
+          const batchCarProgressing = active.some(b => b.trafficMode === 'batch' && b.noProgressTicks < NO_PROGRESS_THRESH && !b.done);
+          if (batchCarProgressing) shouldAccumulate = false;
+        }
+        if (shouldAccumulate) c.noProgressTicks += dt;
         else c.noProgressTicks = Math.max(0, c.noProgressTicks - dt * 2);
         this.testMetrics.maxNoProgressTicks = Math.max(this.testMetrics.maxNoProgressTicks, c.noProgressTicks);
         if (c._progressDelta >= PROGRESS_EPS) c.progressResumeTicks += dt;
@@ -1253,6 +1257,14 @@
       return false;
     }
 
+    _poseOverlapsCarsNeighbors(pose, neighbors, margin = PROJ_MARGIN) {
+      for (const o of neighbors) {
+        if (Math.hypot(pose.x - o.x, pose.y - o.y) > PROJ_BROAD_PHASE) continue;
+        if (satOverlapMargin(pose.x, pose.y, pose.th, o.x, o.y, o.th, margin)) return true;
+      }
+      return false;
+    }
+
     _isPoseOutsideRoad(c, pose, rd, margin = PROJ_MARGIN) {
       const M = margin;
       for (const corner of carCorners(pose.x, pose.y, pose.th, M)) {
@@ -1270,6 +1282,16 @@
       if (this._poseOverlapsCars(c, pose, active, margin)) return false;
       for (const o of active) {
         if (o.id === c.id || o.done) continue;
+        const gap = this._sameLaneRuntimeGap({ ...c, x: pose.x, y: pose.y, th: pose.th }, o);
+        if (gap !== Infinity && gap < HARD_FOLLOW_GAP) return false;
+      }
+      return true;
+    }
+
+    _isLegalPoseNeighbors(c, pose, rd, neighbors, margin = PROJ_MARGIN) {
+      if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
+      if (this._poseOverlapsCarsNeighbors(pose, neighbors, margin)) return false;
+      for (const o of neighbors) {
         const gap = this._sameLaneRuntimeGap({ ...c, x: pose.x, y: pose.y, th: pose.th }, o);
         if (gap !== Infinity && gap < HARD_FOLLOW_GAP) return false;
       }
@@ -1391,8 +1413,11 @@
       let best = { pose: { x: c.x, y: c.y, th: c.th }, speed: 0, steer: c.steer, score: -1e9 };
       let legalCount = 0;
       const candidates = this._candidateSet(c, trafficContext, dt);
+      const neighbors = trafficContext.active.filter(o =>
+        o.id !== c.id && !o.done && Math.hypot(c.x - o.x, c.y - o.y) < PROJ_BROAD_PHASE + 30
+      );
       for (const candidate of candidates) {
-        if (!this._isLegalPose(c, candidate.pose, trafficContext.rd, trafficContext.active)) continue;
+        if (!this._isLegalPoseNeighbors(c, candidate.pose, trafficContext.rd, neighbors)) continue;
         candidate.enterConflict = trafficContext.conflictProgress !== null && this._pathProgress(c, candidate.pose) >= trafficContext.conflictProgress - 2;
         if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
         legalCount++;
@@ -1401,8 +1426,8 @@
         if (best.score >= EARLY_EXIT_SCORE) break;
       }
       if (legalCount === 0) {
-        for (const candidate of candidates) {
-          if (!this._isLegalPose(c, candidate.pose, trafficContext.rd, trafficContext.active, 0)) continue;
+        for (const candidate of candidates.slice(0, 20)) {
+          if (!this._isLegalPoseNeighbors(c, candidate.pose, trafficContext.rd, neighbors, 0)) continue;
           candidate.enterConflict = trafficContext.conflictProgress !== null && this._pathProgress(c, candidate.pose) >= trafficContext.conflictProgress - 2;
           if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
           legalCount++;

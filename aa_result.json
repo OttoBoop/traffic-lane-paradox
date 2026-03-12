@@ -1,0 +1,49 @@
+{
+  "strict": false,
+  "selected": 2,
+  "guardFailures": 0,
+  "strictFailures": 0,
+  "results": [
+    {
+      "id": "AA",
+      "name": "Blocked-exit legality / spillback",
+      "section": "mixed",
+      "family": "survey_green",
+      "gate": "survey",
+      "expected": "pass",
+      "verdict": "pass",
+      "actual": "pass",
+      "reported": "pass",
+      "passed": true,
+      "time": "5.33",
+      "note": "",
+      "mismatch": false,
+      "metrics": {
+        "Conflict entries": "none",
+        "Blocked-exit admits": "0",
+        "Max conflict stall": "0",
+        "Branch stop": "213"
+      }
+    },
+    {
+      "id": "AA",
+      "name": "Yield threshold — no early maneuver",
+      "section": "mixed",
+      "family": "guard_green",
+      "gate": "guard",
+      "expected": "pass",
+      "verdict": "pass",
+      "actual": "pass",
+      "reported": "pass",
+      "passed": true,
+      "time": "",
+      "note": "",
+      "mismatch": false,
+      "metrics": {
+        "Cars that reached yield": "1",
+        "First early yield→maneuver": "none",
+        "Status": "PASS"
+      }
+    }
+  ]
+}
