@@ -780,6 +780,25 @@
             c.trafficMode = 'hold_exit';
             activeManeuverCount = Math.max(0, activeManeuverCount - 1);
             this._event('maneuver_exit', { carId: c.id });
+          } else if (c.maneuverTimer > 180) {
+            // Timeout exit — breaks cascade deadlocks (cars stuck maneuvering deep in spawn queue).
+            c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
+            c.trafficMode = assignedMode;
+            activeManeuverCount = Math.max(0, activeManeuverCount - 1);
+            this._event('maneuver_exit', { carId: c.id });
+            let bestKeyT = '', bestDistT = 1e9;
+            for (const key of rd.pathKeys) {
+              if (!key.endsWith(c.target)) continue;
+              const path = rd.fullPaths[key];
+              const pq2 = pathQuery(path, c.x, c.y, 0);
+              const d = Math.hypot(pq2.px - c.x, pq2.py - c.y);
+              if (d < bestDistT) { bestDistT = d; bestKeyT = key; }
+            }
+            if (bestKeyT) {
+              c.pathKey = bestKeyT; c.path = rd.fullPaths[bestKeyT];
+              c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx; c.lastProgress = c.pathIdx * PATH_SP;
+              c.lane = parseInt(bestKeyT);
+            }
           } else {
             c.trafficMode = 'maneuver';
           }
@@ -1003,6 +1022,26 @@
           c.spillbackTicks = 0; c.spillbackFlag = false;
         }
         this.testMetrics.maxConflictZoneStallTicks = Math.max(this.testMetrics.maxConflictZoneStallTicks, c.spillbackTicks);
+      }
+
+      // Post-tick separation pass: if heading corrections or sequential planning convergence caused
+      // a physical overlap, push the lower-priority car along the separation direction to safe
+      // distance (2×CAR_HALF_DIAG + 2px), preventing persistent deadlocks and satOverlap counts.
+      const safeSepDist = CAR_HALF_DIAG * 2 + 2;
+      for (let i = 0; i < active.length; i++) {
+        for (let j = i + 1; j < active.length; j++) {
+          const a = active[i], b = active[j]; if (a.done || a.fixed || b.done || b.fixed) continue;
+          const sepDx = b.x - a.x, sepDy = b.y - a.y;
+          if (sepDx * sepDx + sepDy * sepDy > safeSepDist * safeSepDist) continue;
+          if (!satOverlap(a, b)) continue;
+          const pa = this._movementPriority(a), pb = this._movementPriority(b);
+          const [hi, lo] = pa >= pb ? [a, b] : [b, a];
+          const loDx = lo.x - hi.x, loDy = lo.y - hi.y;
+          const dist = Math.sqrt(loDx * loDx + loDy * loDy);
+          if (dist < 0.01) { lo.x += 1; lo.speed = 0; continue; }
+          const push = safeSepDist - dist + 0.5;
+          lo.x += (loDx / dist) * push; lo.y += (loDy / dist) * push; lo.speed = 0;
+        }
       }
 
       for (let i = 0; i < active.length; i++) {
@@ -1458,7 +1497,7 @@
           if (!this._isLegalPoseNeighbors(c, pose, rd, neighbors)) continue;
           const nextProgress = this._pathProgress(c, pose);
           const enterConflict = conflictProgress !== null && nextProgress >= conflictProgress - 2;
-          if (enterConflict && !c.maneuvering && c.trafficMode !== 'batch' && c._assignedTrafficMode !== 'batch' && targetClearance < EXIT_CLEARANCE) continue;
+          if (enterConflict && c.trafficMode !== 'batch' && c._assignedTrafficMode !== 'batch' && targetClearance < EXIT_CLEARANCE) continue;
           if (nextProgress - baseProgress >= PROGRESS_EPS * 0.5) return true;
         }
       }
@@ -1658,6 +1697,9 @@
     }
 
     _chooseLegalMove(c, dt, rd, active) {
+      // P1 cache fix: neighbor positions may have changed since the pre-moveOrder maneuver exit
+      // check. Clear the stale cache so this car uses committed neighbor positions for movement.
+      c._cachedNeighbors = null;
       if (c.plannerMode === 'nominal') {
         // P4: Fast-path — try (desSpd, desSt) directly. Stanley output already minimizes
         // lane centering error, so if legal we accept immediately without tracking error check.
