@@ -1600,12 +1600,15 @@
         attempts.push({ speed, steer: clampedSteer });
       };
       addAttempt(desiredSpeed, desiredSteer);
-      for (const scale of [0.85, 0.7, 0.55, 0.4, 0.25, 0.1]) addAttempt(desiredSpeed * scale, desiredSteer);
-      for (const steer of trafficContext.targetSteers) for (const scale of [0.55, 0.4, 0.25, 0.15]) {
+      // P5: reduced from 6 to 4 speed scales — keep 0.1 for creeping in tight spots
+      for (const scale of [0.85, 0.55, 0.25, 0.1]) addAttempt(desiredSpeed * scale, desiredSteer);
+      // P5: reduced from 4 to 3 steer scales (keep all target steers for directional coverage)
+      for (const steer of trafficContext.targetSteers) for (const scale of [0.55, 0.35, 0.15]) {
         addAttempt(speedSign * Math.max(speedMag * scale, 0.12), steer);
       }
       if (trafficContext.blockerSteer !== null) {
-        for (const scale of [0.4, 0.25, 0.15]) addAttempt(speedSign * Math.max(speedMag * scale, 0.12), trafficContext.blockerSteer);
+        // P5: reduced from 3 blocker scales to 2
+        for (const scale of [0.4, 0.25]) addAttempt(speedSign * Math.max(speedMag * scale, 0.12), trafficContext.blockerSteer);
       }
       if (c.trafficMode === 'maneuver') {
         const maneuverSteers = [];

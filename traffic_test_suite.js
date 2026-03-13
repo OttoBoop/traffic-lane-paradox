@@ -2946,22 +2946,24 @@
       family: "diagnostic",
       name: "Same-target non-batch car must NOT yield when batch is for its target",
       proof:
-        "3L/8 cars, seed 123. Monitors ALL cars each tick for the condition: " +
-        "trafficMode==='yield' AND car.target === zone.activeBatchTarget. " +
-        "Bug: _assignBatchStates line 1277 yields ALL non-batch near-fork cars when " +
-        "activeBatchId!==null, regardless of target. Same-branch paths never cross " +
-        "(line 370 skips same-branch pairs), so yielding same-target cars is unnecessary. " +
-        "Fix: add c.target !== zone.activeBatchTarget to line 1277.",
+        "3L custom: car0 (0-right) enables scheduler in zone 0, car1 (1-left) gets batched, " +
+        "car2 (1-left) is 15px behind car1 — too close to trail (need CAR_L*1.4=30.8) or " +
+        "share (need |y|>=CAR_L*1.3=28.6). Without fix, car2 yields despite same target. " +
+        "Fix: add c.target !== zone.activeBatchTarget to _assignBatchStates yield condition.",
       build() {
         return {
           cases: [
-            standardCase("3L/8 same-target yield", {
+            customCase("3L same-target yield", {
               lanes: 3,
-              cars: 8,
-              split: 50,
-              seed: 123,
-              maxTicks: 800,
+              seed: 1,
+              maxTicks: 600,
+              finishBased: true,
               stepsPerFrame: 5,
+              cars: [
+                { id: 0, lane: 0, target: "right", y: 420 },
+                { id: 1, lane: 1, target: "left", y: 390 },
+                { id: 2, lane: 1, target: "left", y: 405 },
+              ],
             }),
           ],
           state: { sameTargetYieldTicks: 0, worstCarId: null },
@@ -2994,6 +2996,94 @@
         const sim = inst.cases[0].sim;
         const allDone = sim.cars.every((c) => c.fixed || c.done);
         return allDone && inst.state.sameTargetYieldTicks === 0 && legal(sim);
+      },
+    },
+    // ── P7: Merge-scenario — anticipatory braking after MOBIL lane change ───
+    {
+      id: "AY",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Merge scenario — follower brakes anticipatorily when adjacent car merges in",
+      proof:
+        "2L/4 cars (VIEW). Car A (lane 0, y=420) drives toward fork. " +
+        "Blocker (lane 1, y=400, fixed) forces Car B (lane 1, y=500, mobilTimer=1) " +
+        "to attempt MOBIL merge into lane 0. Car C (lane 0, y=560) follows behind A. " +
+        "After B merges into lane 0 between A and C, C must decelerate (IDM response). " +
+        "Assert: ≥1 merge accepted, Car C speed dips below its peak, no SAT overlaps. " +
+        "Safety net for P5 candidate reduction — if reducing candidates breaks merge " +
+        "acceptance or follower braking response, this card catches it.",
+      build() {
+        return {
+          cases: [
+            customCase("2L merge + follower braking", {
+              lanes: 2,
+              w: VIEW.w,
+              h: VIEW.h,
+              seed: 42,
+              maxTicks: 600,
+              stepsPerFrame: 5,
+              finishBased: true,
+              cars: [
+                { id: 0, lane: 0, target: "right", y: 420 },               // A — lead car
+                { id: 1, lane: 1, target: "right", y: 400, fixed: true },   // Blocker
+                { id: 2, lane: 1, target: "right", y: 500, mobilTimer: 1 }, // B — merger
+                { id: 3, lane: 0, target: "right", y: 560 },               // C — follower
+              ],
+            }),
+          ],
+          state: {
+            mergeAccepted: false,
+            mergeTick: -1,
+            cPeakSpeed: 0,
+            cMinSpeedAfterMerge: 9999,
+            cSpeedAtMerge: 0,
+          },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        const carC = sim.cars[3]; // follower
+        // Track C's peak speed before any merge
+        if (!inst.state.mergeAccepted) {
+          if (carC.speed > inst.state.cPeakSpeed) inst.state.cPeakSpeed = carC.speed;
+        }
+        // Detect merge event
+        if (!inst.state.mergeAccepted && sim.testMetrics.mergeAcceptCount > 0) {
+          inst.state.mergeAccepted = true;
+          inst.state.mergeTick = sim.ticks;
+          inst.state.cSpeedAtMerge = carC.speed;
+        }
+        // After merge, track C's minimum speed (braking response)
+        if (inst.state.mergeAccepted) {
+          if (carC.speed < inst.state.cMinSpeedAfterMerge) {
+            inst.state.cMinSpeedAfterMerge = carC.speed;
+          }
+        }
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const s = inst.state;
+        return {
+          Ticks: String(Math.round(sim.ticks)),
+          "Merge accepted": s.mergeAccepted ? "yes (tick " + Math.round(s.mergeTick) + ")" : "no",
+          "Car C peak speed": s.cPeakSpeed.toFixed(2),
+          "Car C speed at merge": s.cSpeedAtMerge.toFixed(2),
+          "Car C min speed after merge": s.cMinSpeedAfterMerge < 9999 ? s.cMinSpeedAfterMerge.toFixed(2) : "n/a",
+          "Speed dip": s.mergeAccepted ? (s.cSpeedAtMerge - s.cMinSpeedAfterMerge).toFixed(2) : "n/a",
+          Overlaps: String(sim.testMetrics.overlapCount),
+          "Cars done": sim.cars.filter((c) => c.done).length + "/" + sim.cars.filter((c) => !c.fixed).length,
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const s = inst.state;
+        // Must have at least one merge
+        if (!s.mergeAccepted) return false;
+        // Car C must show speed reduction after merge (anticipatory braking)
+        const speedDip = s.cSpeedAtMerge - s.cMinSpeedAfterMerge;
+        if (speedDip < 0.05) return false;
+        // No collisions
+        return legal(sim);
       },
     },
   ];

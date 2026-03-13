@@ -408,9 +408,9 @@ Guard tests are the safety net — if any overlap or wall escape appears, the re
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| P7 | Write merge-scenario test card — verifies anticipatory braking with fast path | P6-verify | No | M | ⬜ |
-| P5 | Reduce normal-mode candidate set in `_candidateSet` (lines 1393-1441) | P7 | No | M | ⬜ |
-| P7-verify | Run P7 card + full guard suite; profiler final baseline | P5 | Yes — human #3 | S | ⬜ |
+| P7 | Write merge-scenario test card — verifies anticipatory braking with fast path | P6-verify | No | M | ✅ |
+| P5 | Reduce normal-mode candidate set in `_candidateSet` (lines 1393-1441) | P7 | No | M | ✅ |
+| P7-verify | Run P7 card + full guard suite; profiler final baseline | P5 | Yes — human #3 | S | ✅ |
 
 **Tests Required:**
 
@@ -684,3 +684,4 @@ The sequential-commit architecture means that after Car A moves, Car B sees Car 
 | 2026-03-13 | Performance Extension added from DISCOVERY addendum (2026-03-13). Profiling baseline: 3L/40 cars = 6,477ms / 200 ticks (AH fails due to timeout). Added Features 5 (P1/P2/P3), 6 (P4/P6), 7 (P5/P7). Added MC-2. Updated guard suite to include AH. F2-T1/T2/T3 status updated to ✅ (cards AQ/AR/AS exist). Noted P3 SAT cache correctness risk for sequential-commit architecture. | Claude Sonnet 4.6 |
 | 2026-03-13 | F2-T4/T5 ✅ — batch+stuck fix + 180-tick cascade timeout + post-tick separation pass (commit c8bb088). AQ/AR/AS all pass. P1/P2/P3/P4 ✅ — neighbor cache, broad-phase removal, trig cache, fast-path shortcut all implemented. P5-guard: 200t wall 6,477→6,335ms (-2%), `_isLegalPoseNeighbors` calls 142K→22K (-84%), time 19,337→2,503ms (-87%). AH still timing out — needs P5 candidate reduction. | Claude Sonnet 4.6 |
 | 2026-03-13 | **Performance Wave 4 (P8/P10):** Off-screen car sleep + safety metrics optimization. 80-car 200-tick wall time: 11,392ms→2,876ms (**-75%**, 3.96× speedup). P8: Cars far from stop line (y > stopY + 3×SPAWN_SPACING) skip full pipeline — get minimal IDM follow + bicycle model step. At 80 cars, ~90% of car-ticks are sleeping. P10: Safety metrics now only check awake cars (O(awake²) instead of O(N²)). 4 new diagnostic cards (AT/AU/AV/AW) all PASS. Guards S/X/AA/AC and correctness cards AQ/AR/AS all GREEN. | Claude Opus 4.6 |
+| 2026-03-13 | **P7/P5/P7-verify ✅:** Merge-scenario test card AY (2L, 4 cars, MOBIL merge + follower braking). P5 candidate reduction: speed scales 6→4 [0.85,0.55,0.25,0.1], steer scales 4→3 [0.55,0.35,0.15], blocker scales 3→2 [0.4,0.25]. Avg candidates 23→18.8 (-18%). 80-car wall time 2,876→2,530ms (-12%). Total improvement from baseline: 11,392→2,530ms (**-78%**). Initial aggressive P5 (3 speed, 2 steer) broke AQ/AR/AS (33-36/40 cars); adjusted to conservative reduction. All 11 cards PASS: S/X/AA/AQ/AR/AS/AT/AU/AV/AW/AY. | Claude Opus 4.6 |
