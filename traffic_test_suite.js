@@ -2701,6 +2701,301 @@
         return allDone && inst.state.maxManeuverTicks <= 300 && legal(sim);
       },
     },
+
+    // ── Performance Wave 4 — Diagnostic cards (AT–AW) ──────────────
+    // These cards quantify performance bottlenecks at high car counts.
+    // RED phase: all should FAIL, proving the bottleneck exists.
+    // GREEN phase: fixes make them PASS.
+
+    {
+      id: "AT",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Off-screen sleep ratio — pipeline skipped for distant cars",
+      proof:
+        "3L, 80 cars, 50/50, 100 ticks. Checks sim.testMetrics.sleepTicksTotal vs awakeTicksTotal. " +
+        "Verdict: PASS if >50% of car-ticks are sleeping (pipeline skipped). " +
+        "FAIL if sleeping mechanism is absent or ineffective.",
+      build() {
+        const c = standardCase("80-car sleep ratio", {
+          lanes: 3,
+          cars: 80,
+          split: 50,
+          seed: 307,
+          w: PHONE.w,
+          h: PHONE.h,
+          maxTicks: 100,
+          stepsPerFrame: 1,
+        });
+        return { cases: [c], state: {} };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const sl = sim.testMetrics.sleepTicksTotal;
+        const aw = sim.testMetrics.awakeTicksTotal;
+        const total = sl + aw;
+        const pct = total > 0 ? ((sl / total) * 100).toFixed(1) : "0";
+        return {
+          "Sleeping car-ticks": String(sl),
+          "Awake car-ticks": String(aw),
+          "Sleep %": pct + "%",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const sl = sim.testMetrics.sleepTicksTotal;
+        const aw = sim.testMetrics.awakeTicksTotal;
+        const total = sl + aw;
+        if (total === 0) return false;
+        // PASS if >50% of car-ticks are sleeping
+        return (sl / total) > 0.50 && legal(sim);
+      },
+    },
+
+    {
+      id: "AU",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Per-tick scaling — wall time at 20/40/60/80 cars",
+      proof:
+        "Run 3L sims at 20, 40, 60, 80 cars for 50 ticks each. Measure wall time per tick. " +
+        "Verdict: FAIL if 80-car per-tick is >6× the 20-car per-tick (proves super-linear scaling).",
+      build() {
+        const configs = [20, 40, 60, 80];
+        const cases = configs.map((n) =>
+          standardCase(n + " cars", {
+            lanes: 3,
+            cars: n,
+            split: 50,
+            seed: 307,
+            w: PHONE.w,
+            h: PHONE.h,
+            maxTicks: 50,
+            stepsPerFrame: 1,
+            finishBased: false,
+          })
+        );
+        return {
+          cases,
+          state: { wallTimes: {}, measuring: configs.slice() },
+        };
+      },
+      observe(inst) {
+        // Timing is measured in verdict via createHidden; observe is a no-op
+      },
+      verdict(inst) {
+        // Measure wall time for each case by running fresh hidden sims
+        const configs = [20, 40, 60, 80];
+        const times = {};
+        for (const n of configs) {
+          const start = typeof performance !== "undefined" ? performance.now() : Date.now();
+          createHidden({
+            lanes: 3,
+            nCars: n,
+            splitPct: 50,
+            seed: 307,
+            w: PHONE.w,
+            h: PHONE.h,
+            maxTicks: 50,
+            dt: 1,
+          });
+          const end = typeof performance !== "undefined" ? performance.now() : Date.now();
+          times[n] = end - start;
+        }
+        inst.state.wallTimes = times;
+        const ratio = times[80] / Math.max(times[20], 0.01);
+        // PASS if scaling is <=4× (near-linear); FAIL if super-linear
+        return ratio <= 4;
+      },
+      metrics(inst) {
+        const t = inst.state.wallTimes || {};
+        const ratio = t[20] ? (t[80] / t[20]).toFixed(1) : "?";
+        return {
+          "20 cars": (t[20] || 0).toFixed(1) + " ms",
+          "40 cars": (t[40] || 0).toFixed(1) + " ms",
+          "60 cars": (t[60] || 0).toFixed(1) + " ms",
+          "80 cars": (t[80] || 0).toFixed(1) + " ms",
+          "80/20 ratio": ratio + "×",
+        };
+      },
+    },
+
+    {
+      id: "AV",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Safety metrics O(N²) cost — fraction of tick time",
+      proof:
+        "3L, 80 cars, 50/50, 50 ticks. Instrument _updateRuntimeSafetyMetrics to measure its " +
+        "wall time as a fraction of total tick time. " +
+        "Verdict: FAIL if safety metrics consume >15% of total tick time.",
+      build() {
+        const c = standardCase("80-car safety overhead", {
+          lanes: 3,
+          cars: 80,
+          split: 50,
+          seed: 307,
+          w: PHONE.w,
+          h: PHONE.h,
+          maxTicks: 50,
+          stepsPerFrame: 1,
+          finishBased: false,
+        });
+        return {
+          cases: [c],
+          state: { safetyMs: 0, totalMs: 0, instrumented: false },
+        };
+      },
+      observe(inst) {
+        // Instrument on first observe call
+        if (!inst.state.instrumented) {
+          const sim = inst.cases[0].sim;
+          const origSafety = sim._updateRuntimeSafetyMetrics.bind(sim);
+          const origTick = sim._tickStep.bind(sim);
+          const state = inst.state;
+
+          sim._updateRuntimeSafetyMetrics = function (active) {
+            const s = typeof performance !== "undefined" ? performance.now() : Date.now();
+            origSafety(active);
+            state.safetyMs += (typeof performance !== "undefined" ? performance.now() : Date.now()) - s;
+          };
+
+          sim._tickStep = function (dt, P) {
+            const s = typeof performance !== "undefined" ? performance.now() : Date.now();
+            origTick(dt, P);
+            state.totalMs += (typeof performance !== "undefined" ? performance.now() : Date.now()) - s;
+          };
+
+          inst.state.instrumented = true;
+        }
+      },
+      metrics(inst) {
+        const s = inst.state;
+        const pct = s.totalMs > 0 ? ((s.safetyMs / s.totalMs) * 100).toFixed(1) : "0";
+        return {
+          "Safety time": s.safetyMs.toFixed(1) + " ms",
+          "Total tick time": s.totalMs.toFixed(1) + " ms",
+          "Safety %": pct + "%",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const s = inst.state;
+        if (s.totalMs === 0) return false;
+        const pct = s.safetyMs / s.totalMs;
+        // PASS only if safety metrics use <5% of tick time
+        return pct < 0.05 && legal(sim);
+      },
+    },
+
+    {
+      id: "AW",
+      section: "mixed",
+      family: "diagnostic",
+      name: "80-car wall time improvement — sleep reduces per-tick cost",
+      proof:
+        "3L, 80 cars, 50/50, 50 ticks. Measures wall time and compares to a baseline " +
+        "where all 80 cars would run full pipeline (~57ms/tick baseline). " +
+        "Verdict: PASS if avg per-tick < 30ms (proving sleep mechanism cuts cost in half).",
+      build() {
+        const c = standardCase("80-car perf", {
+          lanes: 3,
+          cars: 80,
+          split: 50,
+          seed: 307,
+          w: PHONE.w,
+          h: PHONE.h,
+          maxTicks: 50,
+          stepsPerFrame: 1,
+          finishBased: false,
+        });
+        return { cases: [c], state: {} };
+      },
+      verdict(inst) {
+        // Run a fresh hidden sim and measure wall time
+        const start = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const sim = createHidden({
+          lanes: 3,
+          nCars: 80,
+          splitPct: 50,
+          seed: 307,
+          w: PHONE.w,
+          h: PHONE.h,
+          maxTicks: 50,
+          dt: 1,
+        });
+        const elapsed = (typeof performance !== "undefined" ? performance.now() : Date.now()) - start;
+        const perTick = elapsed / 50;
+        inst.state.wallMs = elapsed;
+        inst.state.perTickMs = perTick;
+        // PASS if per-tick < 30ms (baseline was ~57ms)
+        return perTick < 30 && legal(sim);
+      },
+      metrics(inst) {
+        return {
+          "Wall time": (inst.state.wallMs || 0).toFixed(0) + " ms",
+          "Per-tick avg": (inst.state.perTickMs || 0).toFixed(1) + " ms",
+          "Target": "< 30 ms/tick",
+        };
+      },
+    },
+    // ── Same-target yield delay (batch scheduler over-yields) ──────────────
+    {
+      id: "AX",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Same-target non-batch car must NOT yield when batch is for its target",
+      proof:
+        "3L/8 cars, seed 123. Monitors ALL cars each tick for the condition: " +
+        "trafficMode==='yield' AND car.target === zone.activeBatchTarget. " +
+        "Bug: _assignBatchStates line 1277 yields ALL non-batch near-fork cars when " +
+        "activeBatchId!==null, regardless of target. Same-branch paths never cross " +
+        "(line 370 skips same-branch pairs), so yielding same-target cars is unnecessary. " +
+        "Fix: add c.target !== zone.activeBatchTarget to line 1277.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L/8 same-target yield", {
+              lanes: 3,
+              cars: 8,
+              split: 50,
+              seed: 123,
+              maxTicks: 800,
+              stepsPerFrame: 5,
+            }),
+          ],
+          state: { sameTargetYieldTicks: 0, worstCarId: null },
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        for (const car of sim.cars) {
+          if (car.done || car.fixed || car.trafficMode !== "yield") continue;
+          for (const zone of sim.road.conflictZones) {
+            if (!zone.paths.has(car.pathKey)) continue;
+            if (zone.activeBatchTarget === car.target) {
+              inst.state.sameTargetYieldTicks++;
+              if (!inst.state.worstCarId) inst.state.worstCarId = car.id;
+            }
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Ticks: String(sim.ticks),
+          "Cars done": sim.cars.filter((c) => c.done).length + "/" + sim.cars.length,
+          "Same-target yield ticks": String(inst.state.sameTargetYieldTicks),
+          "First offender": inst.state.worstCarId !== null ? "car" + inst.state.worstCarId : "none",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const allDone = sim.cars.every((c) => c.fixed || c.done);
+        return allDone && inst.state.sameTargetYieldTicks === 0 && legal(sim);
+      },
+    },
   ];
 
   const FAMILY_META = {

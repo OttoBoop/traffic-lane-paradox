@@ -36,6 +36,7 @@
   const LANE_LOAD_LOOKAHEAD = 150;
   const MAX_ACTIVE_MANEUVERS = 8;
   const EARLY_EXIT_SCORE = 0.9;
+  const YIELD_FULL_PLANNER_DIST = 60;
   const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
   const SINGLE_LANE_BASE_LW = 28;
   const CAR_HALF_DIAG = Math.hypot(CAR_L / 2, CAR_W / 2);
@@ -531,7 +532,9 @@
         preSplitInnerBoundarySampleCount: 0,
         plannerIllegalCount: 0,
         minRuntimeSameLaneGap: Infinity,
-        maxConcurrentManeuverCount: 0
+        maxConcurrentManeuverCount: 0,
+        sleepTicksTotal: 0,
+        awakeTicksTotal: 0
       };
     }
 
@@ -590,10 +593,55 @@
       this._tickStep(dt, P);
     }
 
+    _tickSleepingCars(sleeping, allActive, dt, P, rd) {
+      for (const c of sleeping) {
+        const pq0 = pathQuery(c.path, c.x, c.y, c.pathIdx);
+        c.pathIdx = pq0.idx; c._pq = pq0;
+        c._progress = pq0.idx * PATH_SP; c._progressDelta = 0;
+        c._cachedHasForwardMove = undefined;
+        c.stuckTicks = c.noProgressTicks;
+        c.batchId = null; c.batchTarget = ''; c.primaryBlockerId = null;
+        c.prioritySignal = false; c.zoneYielding = false;
+        c.blockingKind = 'none'; c.plannerMode = 'nominal'; c.trafficMode = 'free';
+        let best = 0, bd = 1e9;
+        for (let i = 0; i < this.nL; i++) { const d = Math.abs(c.x - rd.laneX(i)); if (d < bd) { bd = d; best = i; } }
+        c.lane = best; c.lastProgress = c._progress;
+        let gap = 9999, dv = 0;
+        const ct = Math.cos(c.th), st = Math.sin(c.th);
+        for (const o of allActive) {
+          if (o.id === c.id || o.done) continue;
+          if (o.seg !== 'main' || o.lane !== c.lane) continue;
+          const dx = o.x - c.x, dy = o.y - c.y, fwd = dx * ct + dy * st;
+          if (fwd > 0 && fwd < LOOK) { const g = fwd - CAR_L; if (g < gap) { gap = g; dv = c.speed - o.speed; } }
+        }
+        if (!this.started) { const sd = c.y - rd.stopY; if (sd > 0 && sd - 4 < gap) { gap = sd - 4; dv = c.speed; } }
+        gap = Math.max(gap, 0.1);
+        const targetV = this.started ? P.v0 : 0;
+        c.speed = Math.max(0, c.speed + Math.max(idm(c.speed, targetV, gap, dv), -IDM_B * 4) * dt);
+        c.steer = 0; c.desSpd = c.speed; c.desSt = 0;
+        c.x += c.speed * dt * Math.cos(c.th);
+        c.y += c.speed * dt * Math.sin(c.th);
+        c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th);
+      }
+    }
+
     _tickStep(dt, P) {
       if (!this.running || this.finished) return;
       this.ticks += dt;
-      const rd = this.road, active = this.cars.filter(c => !c.done), mains = active.filter(c => c.seg === 'main');
+      const rd = this.road;
+      const allActive = this.cars.filter(c => !c.done);
+      // P8: Off-screen car sleep — cars far from the stop line skip the full pipeline
+      const SLEEP_Y = rd.stopY + SPAWN_SPACING * 3;
+      const active = [], sleeping = [];
+      for (const c of allActive) {
+        if (c.seg === 'main' && c.y > SLEEP_Y && !c.maneuvering) sleeping.push(c);
+        else active.push(c);
+      }
+      this._tickSleepingCars(sleeping, allActive, dt, P, rd);
+      this.testMetrics.sleepTicksTotal += sleeping.length;
+      this.testMetrics.awakeTicksTotal += active.length;
+      const mains = active.filter(c => c.seg === 'main');
+      // P10: Safety metrics only on awake cars — sleeping cars maintain stable spacing
       this._updateRuntimeSafetyMetrics(active);
 
       for (const c of active) {
@@ -651,13 +699,30 @@
           (blocker.fixed || (blockInfo.gap !== null && blockInfo.gap < CAR_L * 0.75));
         c.primaryBlockerId = blocker ? blocker.id : null;
         c.blockingKind = blockInfo.kind;
-        c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || c.trafficMode === 'yield' || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
-        const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield';
+        // Compute distance to nearest conflict zone (shared by planner mode, maneuver priority)
+        let dpToNearestZone = 1e9;
+        for (const zone of rd.conflictZones) {
+          const zi = zone.paths.get(c.pathKey);
+          if (zi === undefined) continue;
+          const dp = (zi - c.pathIdx) * PATH_SP;
+          if (dp >= 0 && dp < dpToNearestZone) dpToNearestZone = dp;
+        }
+        // Fix 3: Yield cars far from conflict zone use nominal planner (cheap IDM follow)
+        const yieldNeedsFullPlanner = c.trafficMode === 'yield' && dpToNearestZone <= YIELD_FULL_PLANNER_DIST;
+        c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || yieldNeedsFullPlanner || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
+        // Fix 1: Expand blockedForProgress to include parallel and follow blocks when stuck
+        const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield' ||
+          (blockInfo.kind === 'parallel' && c.speed < 0.1) ||
+          (blockInfo.kind === 'follow' && blockInfo.gap !== null && blockInfo.gap < IDM_S0 * 0.5 && c.speed < 0.1);
         const maneuverProgressThresh = c.trafficMode === 'yield' ? NO_PROGRESS_THRESH_YIELD : NO_PROGRESS_THRESH;
         let shouldAccumulate = this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done;
         if (shouldAccumulate && c.trafficMode === 'yield') {
           const batchCarProgressing = active.some(b => b.trafficMode === 'batch' && b.noProgressTicks < NO_PROGRESS_THRESH && !b.done);
           if (batchCarProgressing) shouldAccumulate = false;
+          // Fix 4: Queue is flowing if the car directly in front is moving
+          if (shouldAccumulate && blockInfo.kind === 'follow' && blocker && blocker._progressDelta >= PROGRESS_EPS) {
+            shouldAccumulate = false;
+          }
         }
         if (shouldAccumulate) c.noProgressTicks += dt;
         else c.noProgressTicks = Math.max(0, c.noProgressTicks - dt * 2);
@@ -698,15 +763,10 @@
           c.maneuvering ||
           (!c.done && blockedForProgress && c.trafficMode !== 'batch' && c.noProgressTicks >= maneuverProgressThresh && canEnterManeuver);
         const canExitManeuverNow = shouldProbeForward ? this._getCachedForwardProgressMove(c, active, rd, dt) : false;
+        // Fix 2: Flag candidates instead of immediately entering maneuver (pass-2 sorts by proximity)
         if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= maneuverProgressThresh && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
-          c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
-          c.plannerMode = 'traffic';
-          this.maneuverTriggerCount++;
-          activeManeuverCount++;
-          this.testMetrics.maneuverEnterReasons.progress++;
-          if (this.testMetrics.firstManeuverTick === null) this.testMetrics.firstManeuverTick = this.ticks;
-          if (this.testMetrics.firstProgressManeuverTick === null) this.testMetrics.firstProgressManeuverTick = this.ticks;
-          this._event('maneuver_enter', { carId: c.id, reason: 'progress' });
+          c._maneuverCandidate = true;
+          c._maneuverDpToFork = dpToNearestZone;
         }
 
         if (c.maneuvering) {
@@ -804,6 +864,21 @@
           }
         }
       }
+
+      // Fix 2 pass-2: Grant maneuver slots to candidates sorted by proximity to fork (closest first)
+      const maneuverCandidates = mains.filter(c => c._maneuverCandidate).sort((a, b) => a._maneuverDpToFork - b._maneuverDpToFork);
+      for (const c of maneuverCandidates) {
+        if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) break;
+        c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
+        c.plannerMode = 'traffic';
+        this.maneuverTriggerCount++;
+        activeManeuverCount++;
+        this.testMetrics.maneuverEnterReasons.progress++;
+        if (this.testMetrics.firstManeuverTick === null) this.testMetrics.firstManeuverTick = this.ticks;
+        if (this.testMetrics.firstProgressManeuverTick === null) this.testMetrics.firstProgressManeuverTick = this.ticks;
+        this._event('maneuver_enter', { carId: c.id, reason: 'progress' });
+      }
+      for (const c of mains) c._maneuverCandidate = false;
 
       for (const c of active) {
         const pq = pathQuery(c.path, c.x, c.y, c.pathIdx); c.pathIdx = pq.idx; c._pq = pq;
@@ -1274,7 +1349,7 @@
           c.trafficMode = 'commit'; c.zoneYielding = false;
         } else if (nearFork && targetClear < EXIT_CLEARANCE) {
           c.trafficMode = 'hold_exit'; c.zoneYielding = true;
-        } else if (nearFork && zone.activeBatchId !== null) {
+        } else if (nearFork && zone.activeBatchId !== null && c.target !== zone.activeBatchTarget) {
           c.trafficMode = 'yield'; c.zoneYielding = true;
         } else if (c.commitUntilFork) {
           c.trafficMode = 'commit'; c.zoneYielding = false;

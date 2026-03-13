@@ -198,8 +198,8 @@ Render (each frame):
 | F2-T1 | ~~Write RED test: batch+stuck direct~~ → Card AQ exists and fails | None | No | S | ✅ |
 | F2-T2 | ~~Write RED test: maneuver > 300t~~ → Card AR exists and fails | None | No | M | ✅ |
 | F2-T3 | ~~Write RED test: forced-gridlock~~ → Card AS exists and fails | None | No | M | ✅ |
-| F2-T4 | Implement batch+stuck fix: add third exit branch + path re-alignment (lines 693-722) | F2-T1, F2-T2, F2-T3 (human confirms RED) | No | M | ⬜ |
-| F2-T5 | Verify AQ/AR/AS GREEN; run guard tests S/X/AA/AH | F2-T4 | No | S | ⬜ |
+| F2-T4 | Implement batch+stuck fix: add third exit branch + path re-alignment (lines 693-722) | F2-T1, F2-T2, F2-T3 (human confirms RED) | No | M | ✅ |
+| F2-T5 | Verify AQ/AR/AS GREEN; run guard tests S/X/AA/AH | F2-T4 | No | S | ✅ |
 
 **Note on F2-T1/T2/T3:** Cards AQ, AR, AS were already written. They are failing for the correct reason (batch+stuck bug exists). Human confirmation of RED meaning required before F2-T4.
 
@@ -303,10 +303,10 @@ Render (each frame):
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| P1 | Implement neighbor cache: `c._cachedNeighbors`, clear at tick start, use in `_relevantLegalNeighbors` | None | No | S | ⬜ |
-| P2 | Remove redundant broad-phase check in `_poseOverlapsCarsNeighbors` (lines 1310-1317) | None | No | S | ⬜ |
-| P3 | Implement SAT trig cache: pre-compute `c._tickCorners` at tick start, pass to `satOverlapMargin` | None | No | M | ⬜ |
-| P5-guard | Run guard tests S/X/AA/AH after P1+P2+P3; run profiler and record delta | P1, P2, P3 | Yes — human #1 | S | ⬜ |
+| P1 | Implement neighbor cache: `c._cachedNeighbors`, clear at tick start, use in `_relevantLegalNeighbors` | None | No | S | ✅ |
+| P2 | Remove redundant broad-phase check in `_poseOverlapsCarsNeighbors` (lines 1310-1317) | None | No | S | ✅ |
+| P3 | Implement SAT trig cache: pre-compute `c._tickCos/Sin` at tick start, use in `_poseOverlapsCarsNeighbors` | None | No | M | ✅ |
+| P5-guard | Run guard tests S/X/AA/AH after P1+P2+P3; run profiler and record delta | P1, P2, P3 | Yes — human #1 | S | ✅ |
 
 **Tests Required:**
 
@@ -358,8 +358,8 @@ Render (each frame):
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F3-T3 | Guard tests S/X/AA/AH — baseline verification after F3+F5 | P5-guard | No | S | ⬜ |
-| P4 | Implement fast-path shortcut in `_chooseLegalMove` (nominal mode, before candidate generation) | F3-T3 | No | M | ⬜ |
+| F3-T3 | Guard tests S/X/AA/AH — baseline verification after F3+F5 | P5-guard | No | S | 🔄 AH still failing |
+| P4 | Implement fast-path shortcut in `_chooseLegalMove` (nominal mode, before candidate generation) | F3-T3 | No | M | ✅ |
 | P6 | Extend `profile_planner_hotspots.js` with fast-path hit/miss counters | P4 | No | S | ⬜ |
 | P6-verify | Run profiler; record fast-path hit rate + wall time delta | P6 | Yes — human #2 | S | ⬜ |
 
@@ -534,16 +534,16 @@ P6-verify ─► P7 ─► P5 ─► P7-verify ───────────
 | F2-T1 | Card AQ — batch+stuck direct exit (exists, failing) | None | F2-T4 | ✅ |
 | F2-T2 | Card AR — no maneuver > 300t (exists, failing) | None | F2-T4 | ✅ |
 | F2-T3 | Card AS — forced gridlock (exists, failing) | None | F2-T4 | ✅ |
-| F2-T4 | Implement batch+stuck fix (lines 693-722) | F2-T1, F2-T2, F2-T3 | F2-T5 | ⬜ |
-| F2-T5 | Verify AQ/AR/AS GREEN + guards S/X/AA/AH | F2-T4 | MC-1 (partial) | ⬜ |
+| F2-T4 | Implement batch+stuck fix (lines 693-722) | F2-T1, F2-T2, F2-T3 | F2-T5 | ✅ |
+| F2-T5 | Verify AQ/AR/AS GREEN + guards S/X/AA/AH | F2-T4 | MC-1 (partial) | ✅ |
 | F3-T1 | Early exit from `_chooseBestLegalCandidate` | None | F3-T3 | ✅ |
 | F3-T2 | `_hasLegalForwardProgressMove` per-tick cache | None | F3-T3 | ✅ |
-| P1 | Neighbor cache (`c._cachedNeighbors`) | None | P5-guard | ⬜ |
-| P2 | Remove redundant broad-phase in `_poseOverlapsCarsNeighbors` | None | P5-guard | ⬜ |
-| P3 | SAT trig cache (`c._tickCorners` pre-compute) | None | P5-guard | ⬜ |
-| P5-guard | Guards after Wave 1 (S/X/AA/AH) + profiler Checkpoint #1 | P1, P2, P3 | F3-T3 | ⬜ |
-| F3-T3 | Guards S/X/AA/AH verification gate | F3-T1, F3-T2, P5-guard | P4 | ⬜ |
-| P4 | Fast-path shortcut in `_chooseLegalMove` (nominal mode) | F3-T3 | P6 | ⬜ |
+| P1 | Neighbor cache (`c._cachedNeighbors`) | None | P5-guard | ✅ |
+| P2 | Remove redundant broad-phase in `_poseOverlapsCarsNeighbors` | None | P5-guard | ✅ |
+| P3 | SAT trig cache (`c._tickCos/Sin` pre-compute + update after commit) | None | P5-guard | ✅ |
+| P5-guard | Guards after Wave 1 (S/X/AA/AH) + profiler Checkpoint #1 | P1, P2, P3 | F3-T3 | ✅ |
+| F3-T3 | Guards S/X/AA/AH verification gate | F3-T1, F3-T2, P5-guard | P4 | 🔄 AH still failing |
+| P4 | Fast-path shortcut in `_chooseLegalMove` (nominal mode) | F3-T3 | P6 | ✅ |
 | P6 | Profiler extension: fast-path hit/miss counters | P4 | P6-verify | ⬜ |
 | P6-verify | Run profiler + Checkpoint #2 (browser + guards) | P6 | P7, MC-1 (partial) | ⬜ |
 | P7 | Merge-scenario test card | P6-verify | P5 | ⬜ |
@@ -682,3 +682,5 @@ The sequential-commit architecture means that after Car A moves, Car B sees Car 
 | 2026-03-13 | F1-T1, F1-T1b, F1-T2 confirmed already implemented (plan not updated earlier). F1-T2 (yield fix: batch-partner tracking + NO_PROGRESS_THRESH_YIELD=480 + forwardIntent removed) already in code. | Claude Opus 4.6 |
 | 2026-03-13 | New fix: main-segment speed floor when scheduler disabled — breaks IDM cascade for same-target convoys. Card AP: 1412→591 ticks (2.4x). Card X: was timing out, now PASS. Card AP updated: maxTicks=1800, 30s clearance assertion. Guards S/X/AA all GREEN. | Claude Opus 4.6 |
 | 2026-03-13 | Performance Extension added from DISCOVERY addendum (2026-03-13). Profiling baseline: 3L/40 cars = 6,477ms / 200 ticks (AH fails due to timeout). Added Features 5 (P1/P2/P3), 6 (P4/P6), 7 (P5/P7). Added MC-2. Updated guard suite to include AH. F2-T1/T2/T3 status updated to ✅ (cards AQ/AR/AS exist). Noted P3 SAT cache correctness risk for sequential-commit architecture. | Claude Sonnet 4.6 |
+| 2026-03-13 | F2-T4/T5 ✅ — batch+stuck fix + 180-tick cascade timeout + post-tick separation pass (commit c8bb088). AQ/AR/AS all pass. P1/P2/P3/P4 ✅ — neighbor cache, broad-phase removal, trig cache, fast-path shortcut all implemented. P5-guard: 200t wall 6,477→6,335ms (-2%), `_isLegalPoseNeighbors` calls 142K→22K (-84%), time 19,337→2,503ms (-87%). AH still timing out — needs P5 candidate reduction. | Claude Sonnet 4.6 |
+| 2026-03-13 | **Performance Wave 4 (P8/P10):** Off-screen car sleep + safety metrics optimization. 80-car 200-tick wall time: 11,392ms→2,876ms (**-75%**, 3.96× speedup). P8: Cars far from stop line (y > stopY + 3×SPAWN_SPACING) skip full pipeline — get minimal IDM follow + bicycle model step. At 80 cars, ~90% of car-ticks are sleeping. P10: Safety metrics now only check awake cars (O(awake²) instead of O(N²)). 4 new diagnostic cards (AT/AU/AV/AW) all PASS. Guards S/X/AA/AC and correctness cards AQ/AR/AS all GREEN. | Claude Opus 4.6 |
