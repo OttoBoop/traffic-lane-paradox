@@ -49,6 +49,46 @@
 				"--strict"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "commit-traffic-clean",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"add",
+				"traffic_core.js",
+				"&&",
+				"git",
+				"commit",
+				"-m",
+				"fix: reduce planner legality overhead",
+				"-m",
+				"- add a distance-based early reject before SAT overlap checks",
+				"-m",
+				"- skip corner clearance work when the vehicle center is already safely inside the road"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "repo-push-helper",
+			"type": "shell",
+			"command": "C:/Users/otavi/Documents/prova-ai/.venv/Scripts/python.exe",
+			"args": [
+				"repo_push_helper.py"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "repo-push-helper",
+			"type": "shell",
+			"command": "C:/Users/otavi/Documents/prova-ai/.venv/Scripts/python.exe",
+			"args": [
+				"repo_push_helper.py"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

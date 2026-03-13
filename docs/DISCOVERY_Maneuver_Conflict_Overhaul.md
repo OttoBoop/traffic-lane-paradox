@@ -503,7 +503,15 @@ T8 ──► T11
 
 ## Completeness Score
 
-*To be calculated when all categories have Q&A.*
+```
+Completeness Score: 6/6 gates passed
+- G1: ✅ All categories covered (9/9)
+- G2: ✅ All summaries approved (9/9)
+- G3: ✅ Testing questions complete
+- G4: ✅ Connection map entries (9 ≥ 3)
+- G5: ✅ No pending re-approvals
+- G6: ✅ Reliability evidence complete
+```
 
 ---
 
@@ -577,3 +585,137 @@ Left-lane car at y=430 reaches fork first → batch priority → all 10 convoy c
 **With bug:** Either maneuver disrupts the convoy, or crossing car gets stuck permanently → assertion 1 or 3 may fail
 **With fix:** All assertions pass — clean priority and clean crossing
 **maxTicks:** ~600 (generous budget for full 10-car convoy + crossing car)
+
+---
+
+## Addendum — 2026-03-13: Performance Optimization Extension
+
+**Context:** Profiling with `profile_planner_hotspots.js` and `debug_lag_matrix.js` revealed the simulation's core performance bottleneck. The existing F3 optimizations (early exit + `_hasLegalForwardProgressMove` cache) are necessary but insufficient. This addendum extends the discovery with 5 additional optimizations and a future two-phase architecture direction.
+
+### Profiling Baseline (measured 2026-03-13)
+
+| Scenario | Wall time (200 ticks) | `_isLegalPoseNeighbors` calls | `_isLegalPoseNeighbors` time | % of total |
+|----------|----------------------|-------------------------------|------------------------------|------------|
+| 1L/10 cars | 504ms | — | — | — |
+| 2L/20 cars | 3,844ms | — | — | — |
+| 3L/20 cars | 3,665ms | — | — | — |
+| 3L/40 cars | 6,477ms | 142,021 | 19,337ms | ~74% |
+
+At 30fps, 200 frames = 6.67s budget. The simulation alone consumes 97% of the frame budget **before rendering**.
+
+### Root Cause Chain
+
+1. `_chooseBestLegalCandidate` called once per car per tick for every car in `traffic` planner mode
+2. Each call generates ~23 candidates (normal) or ~100 (maneuver) via `_candidateSet`
+3. Each candidate runs `_isLegalPoseNeighbors` which calls `satOverlapMargin` per neighbor
+4. `_relevantLegalNeighbors` called 2-3× per car per tick with identical inputs (redundant)
+5. `satOverlapMargin` computes `carCorners` (trig) fresh every call (redundant)
+6. `_poseOverlapsCarsNeighbors` re-checks broad-phase distance on already-filtered neighbors (redundant)
+
+### Performance Goals
+
+- **No hard target** — maximize improvement, record deltas for future regression detection
+- **Subjective:** smooth browser rendering at 3L/40 cars
+- **Measurement:** extend `profile_planner_hotspots.js` with fast-path counters
+
+### Optimizations In Scope (5 new + existing F3)
+
+| ID | Optimization | Behavior Change | Key Files |
+|----|-------------|-----------------|-----------|
+| P1 | Neighbor caching (`c._cachedNeighbors` per car per tick) | None | `traffic_core.js:1279-1298, 1371, 1494, 1511` |
+| P2 | Redundant broad-phase removal in `_poseOverlapsCarsNeighbors` | None | `traffic_core.js:1310-1317` |
+| P3 | SAT trig caching (pre-compute car corners at tick start) | None | `traffic_core.js:177-191, tick start` |
+| P4 | Fast-path shortcut (try desSpd/desSt first for nominal mode) | None for nominal | `traffic_core.js:1578-1581` |
+| P5 | Normal-mode candidate count reduction | Yes — fewer options | `traffic_core.js:1393-1441` |
+
+**Existing F3 (already in plan):**
+- F3-T1: Early exit from `_chooseBestLegalCandidate` (EARLY_EXIT_SCORE=0.9) ✅ Done
+- F3-T2: `_hasLegalForwardProgressMove` per-tick cache ✅ Done
+- F3-T3: Guard tests after optimizations ⬜ Pending
+
+### Behavioral Impact Analysis
+
+**P1 (Neighbor cache):** ZERO. `_relevantLegalNeighbors(c, active, 30)` is called 2-3× per car per tick with identical `c` and `active`. Car positions don't change between calls within a tick. Returns identical results.
+
+**P2 (Broad-phase removal):** ZERO. `_poseOverlapsCarsNeighbors` re-checks `dx²+dy² > PROJ_BROAD_PHASE_SQ` on neighbors already filtered to `PROJ_BROAD_PHASE + 30` range. Candidate poses are small movements from the car's current position — they stay within the original range.
+
+**P3 (SAT trig cache):** ZERO. Pre-computes `cos(th)`, `sin(th)`, and 4 corner positions for each car once per tick. Each car's `(x, y, th)` doesn't change during the tick (position only updates via `_chooseLegalMove` at the end). Produces bit-identical SAT results.
+
+**P4 (Fast-path shortcut):** ZERO for nominal mode. The Stanley controller computes `desSt` (lane-centering steer) and IDM computes `desSpd` (safe following speed) BEFORE the planner. `(desSpd, desSt)` already encodes lane centering + car following + anticipatory braking (cone detection). If this pose is legal (no SAT overlap, no wall escape) → the planner would have accepted it anyway. The fast path just skips generating and evaluating the other ~22 candidates.
+
+**P5 (Candidate reduction):** YES — behavior change. Fewer candidates = the planner might miss a move it would have found. Guard tests are the safety net. Only applied to normal mode (not maneuver).
+
+### Fast-Path Shortcut Design
+
+**Concept:** Before generating the full candidate set, try the car's desired move directly:
+1. Stanley computes `desSt` → IDM computes `desSpd` → cone/wall/conflict braking adjusts both
+2. Project `(desSpd, desSt)` through bicycle model → candidate pose
+3. Check legality: `_isLegalPoseNeighbors` (1 SAT check vs ~23)
+4. If legal + no conflict zone violation → ACCEPT immediately, skip full planner
+5. If illegal → fall through to `_chooseBestLegalCandidate` (existing code)
+
+**Scope:** Nominal `plannerMode` only. Traffic modes (yield, batch, maneuver, hold_exit) always use the full planner — they need complex candidate evaluation.
+
+**Lane centering:** The fast path accepts the pure Stanley output, which IS the lane-centering steer. This is actually BETTER for lane centering than the full planner, which might pick a slightly different steer to avoid a nearby car.
+
+**Merge anticipation:** Cone detection (lines 780-801) runs BEFORE the planner and reduces `desSpd` when a merging car enters the forward projection. The fast path inherits this reduced speed. SAT check catches any remaining overlap. If SAT fails → falls through to full planner. Merge safety preserved. A specific merge-scenario test card (P7) will verify this.
+
+### Constraints (Performance Extension)
+
+- Lane centering quality must not degrade (hard constraint)
+- Bicycle model sole position integrator (unchanged)
+- Vanilla JS, no dependencies (unchanged)
+- Maneuver-mode candidate reduction deferred to Future Plans
+- Traffic-mode fast path deferred to Future Plans
+
+### Testing Plan (Performance Extension)
+
+| Test | Type | Human Gate | Done When |
+|------|------|-----------|-----------|
+| Guard tests (S, X, AA, P) | Headless guard | After each wave | All guards green |
+| Profiler extension (P6) | Tooling | No | Fast-path hit rate + call counts tracked |
+| Merge-scenario test (P7) | Headless diagnostic | Before checkpoint #3 | Anticipatory braking works with fast path |
+| Browser visual check | Manual | Checkpoints #1, #2, #3 | Smooth at 3L/40 cars |
+
+### Wave Structure (Performance Extension)
+
+```
+📦 Wave 1: P1 + P2 + P3 (parallel, zero behavior change)
+   👤 Checkpoint #1: Guards + profiler — verify safety, measure delta
+
+📦 Wave 2: F3-T3 → P4 → P6 (sequential)
+   F3-T3: Guard verification after Wave 1
+   P4: Fast-path shortcut implementation
+   P6: Profiler extension with fast-path counters
+   👤 Checkpoint #2: Browser visual + guards + profiler
+
+📦 Wave 3: P5 + P7 (parallel, behavior change)
+   P5: Normal-mode candidate reduction
+   P7: Merge-scenario test card
+   👤 Checkpoint #3: Full acceptance (guards + merge test + profiler + browser)
+```
+
+**Dependency graph:**
+```
+P1 (neighbor cache) ───┐
+P2 (broad-phase)    ───┼──► F3-T3 (guards) ──► P4 (fast path) ──┬─► P5 (candidate reduction)
+P3 (SAT cache)      ───┘                                        ├─► P6 (profiler)
+                                                                 └─► P7 (merge test)
+```
+
+### Future Plans (Performance Extension)
+
+1. **Maneuver candidate reduction** (100→~40) — deferred due to quality risk. Already in IDEAS doc.
+2. **Traffic-mode fast path** — extend fast-path shortcut to yield/batch/maneuver after proving it works for nominal.
+3. **Two-phase tick rewrite** — parallel-intent + conflict-resolution architecture. Stays in main plan as final phase. Conflict resolution mechanism TBD (batch scheduler, distance-based, or first-come priority — needs further design).
+
+### Connection Map (Performance Extension Entries)
+
+| Answer | Affects Categories | Notes |
+|--------|-------------------|-------|
+| Performance goal: maximize, no hard target, record deltas | Non-Functional, Testing | Profiler extension required for regression detection |
+| Fast-path for nominal only; traffic modes use full planner | Functional, Constraints | Traffic-mode fast path deferred to Future Plans |
+| Merge anticipation: cone detection + SAT preserves safety | Edge Cases, Testing | New merge-scenario test card (P7) to verify |
+| Lane centering = hard constraint (must not degrade) | Constraints, Functional | Fast path accepts pure Stanley output — actually better |
+| Two-phase rewrite stays in main plan as final phase | Core, Future Plans | Conflict resolution design TBD |
+| Candidate reduction normal-only; maneuver deferred | Functional, Future Plans | Guard tests are safety net for behavior change |

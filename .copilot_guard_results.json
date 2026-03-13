@@ -1,0 +1,93 @@
+{
+  "strict": true,
+  "selected": 4,
+  "duplicateIds": [],
+  "guardFailures": 0,
+  "strictFailures": 0,
+  "results": [
+    {
+      "id": "P",
+      "name": "dt-spike legality chaos",
+      "section": "collision",
+      "family": "guard_green",
+      "gate": "guard",
+      "expected": "pass",
+      "verdict": "pass",
+      "actual": "pass",
+      "reported": "pass",
+      "passed": true,
+      "time": "133.33/23.97",
+      "note": "",
+      "mismatch": false,
+      "metrics": {
+        "dt2 legal": "YES",
+        "dt3 legal": "YES",
+        "dt2 overlaps": "0",
+        "dt3 overlaps": "0"
+      }
+    },
+    {
+      "id": "S",
+      "name": "Maneuver activation",
+      "section": "mixed",
+      "family": "guard_green",
+      "gate": "guard",
+      "expected": "pass",
+      "verdict": "pass",
+      "actual": "pass",
+      "reported": "pass",
+      "passed": true,
+      "time": "3.67",
+      "note": "",
+      "mismatch": false,
+      "metrics": {
+        "Maneuvers": "1",
+        "Done": "0/40",
+        "Time": "3.67s",
+        "No-progress max": "63"
+      }
+    },
+    {
+      "id": "AA",
+      "name": "Blocked-exit legality / spillback",
+      "section": "mixed",
+      "family": "survey_green",
+      "gate": "survey",
+      "expected": "pass",
+      "verdict": "pass",
+      "actual": "pass",
+      "reported": "pass",
+      "passed": true,
+      "time": "5.33",
+      "note": "",
+      "mismatch": false,
+      "metrics": {
+        "Conflict entries": "none",
+        "Blocked-exit admits": "0",
+        "Max conflict stall": "0",
+        "Branch stop": "213"
+      }
+    },
+    {
+      "id": "X",
+      "name": "Late lane oscillation",
+      "section": "mixed",
+      "family": "guard_green",
+      "gate": "guard",
+      "expected": "pass",
+      "verdict": "pass",
+      "actual": "pass",
+      "reported": "pass",
+      "passed": true,
+      "time": "116.67",
+      "note": "",
+      "mismatch": false,
+      "metrics": {
+        "Late commit changes": "0",
+        "Merge attempts": "322",
+        "Done": "18/20",
+        "Time": "116.67s"
+      }
+    }
+  ]
+}

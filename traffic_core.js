@@ -34,7 +34,7 @@
   const PROGRESS_RESUME_THRESH = 20;
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
-  const MAX_ACTIVE_MANEUVERS = 4;
+  const MAX_ACTIVE_MANEUVERS = 8;
   const EARLY_EXIT_SCORE = 0.9;
   const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
   const SINGLE_LANE_BASE_LW = 28;
@@ -181,6 +181,31 @@
     const cA = carCorners(ax, ay, ath, margin), cB = carCorners(bx, by, bth, margin);
     const axes = [{ x: Math.cos(ath), y: Math.sin(ath) }, { x: -Math.sin(ath), y: Math.cos(ath) },
     { x: Math.cos(bth), y: Math.sin(bth) }, { x: -Math.sin(bth), y: Math.cos(bth) }];
+    for (const ax2 of axes) {
+      let aMin = 1e9, aMax = -1e9, bMin = 1e9, bMax = -1e9;
+      for (const c of cA) { const p = c.x * ax2.x + c.y * ax2.y; if (p < aMin) aMin = p; if (p > aMax) aMax = p; }
+      for (const c of cB) { const p = c.x * ax2.x + c.y * ax2.y; if (p < bMin) bMin = p; if (p > bMax) bMax = p; }
+      if (aMax <= bMin || bMax <= aMin) return false;
+    }
+    return true;
+  }
+
+  // P3: SAT check with B's trig pre-computed (avoids Math.cos/sin for the neighbor).
+  function satOverlapMarginB(ax, ay, ath, bx, by, bCos, bSin, margin) {
+    const m = margin || 0;
+    const halfDiag = CAR_HALF_DIAG + m;
+    const dx = ax - bx, dy = ay - by;
+    if (dx * dx + dy * dy > (halfDiag * 2) * (halfDiag * 2)) return false;
+    const cA = carCorners(ax, ay, ath, m);
+    const hl = CAR_L / 2 + m, hw = CAR_W / 2 + m;
+    const cB = [
+      { x: bx + bCos * hl - bSin * hw, y: by + bSin * hl + bCos * hw },
+      { x: bx + bCos * hl + bSin * hw, y: by + bSin * hl - bCos * hw },
+      { x: bx - bCos * hl + bSin * hw, y: by - bSin * hl - bCos * hw },
+      { x: bx - bCos * hl - bSin * hw, y: by - bSin * hl + bCos * hw },
+    ];
+    const axes = [{ x: Math.cos(ath), y: Math.sin(ath) }, { x: -Math.sin(ath), y: Math.cos(ath) },
+      { x: bCos, y: bSin }, { x: -bSin, y: bCos }];
     for (const ax2 of axes) {
       let aMin = 1e9, aMax = -1e9, bMin = 1e9, bMax = -1e9;
       for (const c of cA) { const p = c.x * ax2.x + c.y * ax2.y; if (p < aMin) aMin = p; if (p > aMax) aMax = p; }
@@ -731,6 +756,25 @@
               c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx; c.lastProgress = c.pathIdx * PATH_SP;
               c.lane = parseInt(bestKey);
             }
+          } else if (assignedMode === 'batch' && pathClear) {
+            // F2-T4: batch+stuck fix — batch cars were missing an exit branch, causing permanent maneuver lock.
+            c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
+            c.trafficMode = 'batch';
+            activeManeuverCount = Math.max(0, activeManeuverCount - 1);
+            this._event('maneuver_exit', { carId: c.id });
+            let bestKey = '', bestDist = 1e9;
+            for (const key of rd.pathKeys) {
+              if (!key.endsWith(c.target)) continue;
+              const path = rd.fullPaths[key];
+              const pq2 = pathQuery(path, c.x, c.y, 0);
+              const d = Math.hypot(pq2.px - c.x, pq2.py - c.y);
+              if (d < bestDist) { bestDist = d; bestKey = key; }
+            }
+            if (bestKey) {
+              c.pathKey = bestKey; c.path = rd.fullPaths[bestKey];
+              c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx; c.lastProgress = c.pathIdx * PATH_SP;
+              c.lane = parseInt(bestKey);
+            }
           } else if (assignedMode === 'hold_exit' && !pathClear) {
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
             c.trafficMode = 'hold_exit';
@@ -877,12 +921,15 @@
         c.speed = c.desSpd;
       }
 
+      // Clear per-tick neighbor cache (P1) and pre-compute trig (P3).
+      for (const c of active) { c._cachedNeighbors = null; c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th); }
       // Commit only legal next poses. Cars never move into an illegal pose and then revert.
       const moveOrder = [...active].sort((a, b) => this._movementPriority(b) - this._movementPriority(a));
       for (const c of moveOrder) {
         if (c.fixed) { c.speed = 0; c.steer = 0; continue; }
         const pose = this._chooseLegalMove(c, dt, rd, active);
         c.x = pose.x; c.y = pose.y; c.th = pose.th; c.speed = pose.speed; c.steer = pose.steer;
+        c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th); // update after commit (P3)
       }
 
       for (const c of active) {
@@ -1277,6 +1324,7 @@
     }
 
     _relevantLegalNeighbors(c, active, extraRange = 30) {
+      if (c._cachedNeighbors) return c._cachedNeighbors;
       const range = PROJ_BROAD_PHASE + extraRange;
       const rangeSq = range * range;
       const overlapNeighbors = [];
@@ -1294,7 +1342,9 @@
         }
         gapNeighbors.push(o);
       }
-      return { overlapNeighbors, gapNeighbors };
+      const result = { overlapNeighbors, gapNeighbors };
+      c._cachedNeighbors = result;
+      return result;
     }
 
     _poseOverlapsCars(c, pose, active, margin = PROJ_MARGIN) {
@@ -1308,10 +1358,42 @@
     }
 
     _poseOverlapsCarsNeighbors(pose, neighbors, margin = PROJ_MARGIN) {
+      if (!neighbors.length) return false;
+      // Compute candidate (A) corners and axes once — same for all neighbors (P3).
+      const m = margin || 0;
+      const halfDiag = CAR_HALF_DIAG + m;
+      const diagSq = (halfDiag * 2) * (halfDiag * 2);
+      const pCos = Math.cos(pose.th), pSin = Math.sin(pose.th);
+      const hl = CAR_L / 2 + m, hw = CAR_W / 2 + m;
+      const px = pose.x, py = pose.y;
+      const cA = [
+        { x: px + pCos * hl - pSin * hw, y: py + pSin * hl + pCos * hw },
+        { x: px + pCos * hl + pSin * hw, y: py + pSin * hl - pCos * hw },
+        { x: px - pCos * hl + pSin * hw, y: py - pSin * hl - pCos * hw },
+        { x: px - pCos * hl - pSin * hw, y: py - pSin * hl + pCos * hw },
+      ];
       for (const o of neighbors) {
-        const dx = pose.x - o.x, dy = pose.y - o.y;
-        if (dx * dx + dy * dy > PROJ_BROAD_PHASE_SQ) continue;
-        if (satOverlapMargin(pose.x, pose.y, pose.th, o.x, o.y, o.th, margin)) return true;
+        const dx = px - o.x, dy = py - o.y;
+        if (dx * dx + dy * dy > diagSq) continue;
+        const bCos = o._tickCos !== undefined ? o._tickCos : Math.cos(o.th);
+        const bSin = o._tickSin !== undefined ? o._tickSin : Math.sin(o.th);
+        const ox = o.x, oy = o.y;
+        const cB = [
+          { x: ox + bCos * hl - bSin * hw, y: oy + bSin * hl + bCos * hw },
+          { x: ox + bCos * hl + bSin * hw, y: oy + bSin * hl - bCos * hw },
+          { x: ox - bCos * hl + bSin * hw, y: oy - bSin * hl - bCos * hw },
+          { x: ox - bCos * hl - bSin * hw, y: oy - bSin * hl + bCos * hw },
+        ];
+        const axes = [{ x: pCos, y: pSin }, { x: -pSin, y: pCos },
+          { x: bCos, y: bSin }, { x: -bSin, y: bCos }];
+        let separated = false;
+        for (const ax of axes) {
+          let aMin = 1e9, aMax = -1e9, bMin = 1e9, bMax = -1e9;
+          for (const c of cA) { const p = c.x * ax.x + c.y * ax.y; if (p < aMin) aMin = p; if (p > aMax) aMax = p; }
+          for (const c of cB) { const p = c.x * ax.x + c.y * ax.y; if (p < bMin) bMin = p; if (p > bMax) bMax = p; }
+          if (aMax <= bMin || bMax <= aMin) { separated = true; break; }
+        }
+        if (!separated) return true;
       }
       return false;
     }
@@ -1376,7 +1458,7 @@
           if (!this._isLegalPoseNeighbors(c, pose, rd, neighbors)) continue;
           const nextProgress = this._pathProgress(c, pose);
           const enterConflict = conflictProgress !== null && nextProgress >= conflictProgress - 2;
-          if (enterConflict && c.trafficMode !== 'batch' && targetClearance < EXIT_CLEARANCE) continue;
+          if (enterConflict && !c.maneuvering && c.trafficMode !== 'batch' && c._assignedTrafficMode !== 'batch' && targetClearance < EXIT_CLEARANCE) continue;
           if (nextProgress - baseProgress >= PROGRESS_EPS * 0.5) return true;
         }
       }
@@ -1576,7 +1658,16 @@
     }
 
     _chooseLegalMove(c, dt, rd, active) {
-      if (c.plannerMode === 'nominal') return this._chooseNominalMove(c, dt, rd, active);
+      if (c.plannerMode === 'nominal') {
+        // P4: Fast-path — try (desSpd, desSt) directly. Stanley output already minimizes
+        // lane centering error, so if legal we accept immediately without tracking error check.
+        const fastPose = this._candidatePose(c, c.desSpd, c.desSt, dt);
+        const neighbors = this._relevantLegalNeighbors(c, active); // uses P1 cache
+        if (this._isLegalPoseNeighbors(c, fastPose, rd, neighbors)) {
+          return { x: fastPose.x, y: fastPose.y, th: fastPose.th, speed: c.desSpd, steer: c.desSt };
+        }
+        return this._chooseNominalMove(c, dt, rd, active);
+      }
       return this._chooseTrafficMove(c, dt, rd, active);
     }
 
