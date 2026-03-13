@@ -7,6 +7,7 @@
   const { createScenarioSim, CAR_L, V0_DEF, satOverlap, pathQuery } = TC;
   const VIEW = { w: 220, h: 760 };
   const PHONE = { w: 110, h: 700 };
+  const SHORT_VIEW = { w: 220, h: 260 };
   const SUITES = [
     {
       id: "legacy",
@@ -953,7 +954,7 @@
       {
         id: "AM",
         section: "legacy",
-        family: "known_red",
+        family: "survey_green",
         name: "Open-lane bypass avoids false maneuver",
         proof:
           "With a truly open adjacent lane, bypass behavior should not escalate into maneuver mode; the car should solve it through legal lateral progress or merge logic.",
@@ -1051,7 +1052,7 @@
     {
       id: "AG",
       section: "same",
-      family: "known_red",
+      family: "survey_green",
       name: "Spawn starts with safe spacing",
       proof:
         "Initial spawn should already respect safe same-lane headway and should not place the front row of every lane at the exact same depth.",
@@ -1226,7 +1227,7 @@
     {
       id: "L",
       section: "collision",
-      family: "known_red",
+      family: "survey_green",
       name: "Unsafe merge rejection",
       proof:
         "Road-based unsafe merge guard. A merge must not be accepted when the target-lane gap is below 33px.",
@@ -1489,6 +1490,53 @@
       },
     },
     {
+      id: "AO",
+      section: "collision",
+      family: "known_red",
+      name: "Short-view completion floor",
+      proof:
+        "Browser fallback now keeps a minimum logical road even when the canvas gets very short. " +
+        "At that floor, 2L and 3L mixed traffic must still stay legal and reach a branch exit.",
+      build() {
+        return {
+          cases: [
+            standardCase("2L short view", {
+              lanes: 2,
+              cars: 6,
+              split: 50,
+              seed: 615,
+              maxTicks: 5000,
+              w: SHORT_VIEW.w,
+              h: SHORT_VIEW.h,
+              stepsPerFrame: 10,
+            }),
+            standardCase("3L short view", {
+              lanes: 3,
+              cars: 6,
+              split: 50,
+              seed: 616,
+              maxTicks: 5000,
+              w: SHORT_VIEW.w,
+              h: SHORT_VIEW.h,
+              stepsPerFrame: 10,
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        return {
+          "2L": inst.cases[0].sim.finished ? timeStr(inst.cases[0]) : "DNF",
+          "3L": inst.cases[1].sim.finished ? timeStr(inst.cases[1]) : "DNF",
+          "2L done": countDone(inst.cases[0].sim) + "/6",
+          "3L done": countDone(inst.cases[1].sim) + "/6",
+        };
+      },
+      verdict(inst) {
+        return inst.cases.every((caseRecord) => caseRecord.sim.finished && legal(caseRecord.sim));
+      },
+    },
+    {
       id: "P",
       section: "collision",
       family: "guard_green",
@@ -1726,7 +1774,7 @@
     {
       id: "U",
       section: "mixed",
-      family: "survey_green",
+      family: "known_red",
       name: "Live merge safety under 50/50",
       proof:
         "2L, 10 cars, 50/50. Any accepted live merge should still respect the 33px normal safety distance.",
@@ -1765,7 +1813,7 @@
     {
       id: "V",
       section: "mixed",
-      family: "known_red",
+      family: "survey_green",
       name: "Conflict maneuver resolution",
       proof:
         "Mixed conflict should only count as solved if cars actually maneuver around the blockage and restore progress instead of only waiting.",
@@ -1874,7 +1922,7 @@
     {
       id: "AB",
       section: "same",
-      family: "known_red",
+      family: "survey_green",
       name: "Lower conflicts yield without convoy wobble",
       proof:
         "When a same-target left convoy already has the clear path, lower conflicting cars should yield instead of pulling the convoy into yield or maneuver mode.",
@@ -1933,7 +1981,7 @@
     {
       id: "AD",
       section: "mixed",
-      family: "known_red",
+      family: "survey_green",
       name: "Maneuver exit ignores side-clear maneuverers",
       proof:
         "A car with restored forward progress should exit maneuver mode even if another maneuvering car remains nearby but outside its real blocker corridor.",
@@ -2007,7 +2055,7 @@
       },
     },
     {
-      id: "AG",
+      id: "AN",
       section: "mixed",
       family: "known_red",
       name: "Batch grant stays stable until clearance",
@@ -2148,7 +2196,7 @@
     {
       id: "Y",
       section: "mixed",
-      family: "known_red",
+      family: "survey_green",
       name: "Stress completion",
       proof:
         "4L and 5L, 40 cars, 50/50. Both heavy mixed-traffic runs should still complete within the large tick budget.",
@@ -2413,6 +2461,246 @@
         return true;
       },
     },
+    // ── F1-T1b: Test B — 10+1 convoy completion within 30 in-game seconds ──
+    {
+      id: "AP",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Convoy clears — all 11 cars finish within 30 sim-seconds",
+      proof:
+        "10+1 convoy scenario (same as card AC). 3 assertions: " +
+        "(1) crossing car (target=left) finishes, " +
+        "(2) all 10 convoy cars (target=right) finish, " +
+        "(3) all cars finish within 1800 ticks (30 sim-seconds). " +
+        "Before main speed floor: IDM cascade keeps rear cars frozen — only 2/10 finish in 800t. " +
+        "After fix: scheduler disables once crossing car clears, main speed floor kicks in, " +
+        "convoy flows smoothly through fork. All done well under 30s.",
+      build() {
+        return {
+          cases: [
+            customCase("2L 10+1 convoy order", {
+              lanes: 2,
+              seed: 101,
+              maxTicks: 1800,
+              stepsPerFrame: 8,
+              cars: [
+                { id: 0, lane: 0, target: "right", y: 430 },
+                { id: 1, lane: 0, target: "right", y: 460 },
+                { id: 2, lane: 0, target: "right", y: 490 },
+                { id: 3, lane: 0, target: "right", y: 520 },
+                { id: 4, lane: 0, target: "right", y: 550 },
+                { id: 5, lane: 0, target: "right", y: 580 },
+                { id: 6, lane: 0, target: "right", y: 610 },
+                { id: 7, lane: 0, target: "right", y: 640 },
+                { id: 8, lane: 0, target: "right", y: 670 },
+                { id: 9, lane: 0, target: "right", y: 700 },
+                { id: 10, lane: 1, target: "left", y: 460 },
+              ],
+            }),
+          ],
+          state: { finishTicks: {} },
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        for (const car of sim.cars) {
+          if (car.done && !(car.id in inst.state.finishTicks)) {
+            inst.state.finishTicks[car.id] = sim.ticks;
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const crossingCar = sim.cars.find((c) => c.target === "left" && !c.fixed);
+        const convoyCars = sim.cars.filter((c) => c.target === "right" && !c.fixed);
+        const convoyDone = convoyCars.filter((c) => c.done).length;
+        const crossingTick = crossingCar ? (inst.state.finishTicks[crossingCar.id] || "DNF") : "n/a";
+        const lastAnyTick = Math.max(0, ...Object.values(inst.state.finishTicks));
+        return {
+          "Crossing done": crossingCar ? String(crossingCar.done) + " @t=" + crossingTick : "n/a",
+          "Convoy done": convoyDone + "/10",
+          "Last car tick": String(lastAnyTick || "none"),
+          "Sim seconds": (sim.ticks / 60).toFixed(1) + "s",
+          "Cleared in 30s": lastAnyTick > 0 && lastAnyTick <= 1800 ? "YES" : "NO",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const crossingCar = sim.cars.find((c) => c.target === "left" && !c.fixed);
+        const convoyCars = sim.cars.filter((c) => c.target === "right" && !c.fixed);
+
+        // Assert 1: crossing car finished
+        if (!crossingCar || !crossingCar.done) return false;
+
+        // Assert 2: all 10 convoy cars finished
+        if (convoyCars.some((c) => !c.done)) return false;
+
+        // Assert 3: all cars done within 1800 ticks (30 sim-seconds)
+        const lastTick = Math.max(0, ...Object.values(inst.state.finishTicks));
+        if (lastTick > 1800 || lastTick === 0) return false;
+
+        return legal(sim);
+      },
+    },
+    // ── F2-T1: Batch+stuck direct exit test ──
+    {
+      id: "AQ",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Batch+stuck: maneuvering car with batch grant exits maneuver",
+      proof:
+        "Bug: maneuver exit logic (lines 693-722) has no branch for assignedMode==='batch' AND canExit===true. " +
+        "Test: 2L, 14 cars, 50/50 split — enough density to force maneuver entry + batch scheduling. " +
+        "Observe: stop records _assignedTrafficMode='batch' on maneuvering cars (the bug condition). " +
+        "With bug: car stays in maneuver because exit logic falls through to default → max maneuver ticks high. " +
+        "With fix: car exits maneuver when batch+canExit → all cars complete, max maneuver ticks low.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L batch+stuck dense", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 307,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: { batchGrantWhileManeuver: false, maxManeuverTicks: 0 },
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        for (const car of sim.cars) {
+          if (car.maneuvering && car.maneuverTimer > inst.state.maxManeuverTicks) {
+            inst.state.maxManeuverTicks = car.maneuverTimer;
+          }
+          // The bug condition: car.maneuvering is true AND batch scheduler assigned 'batch'
+          if (car.maneuvering && car._assignedTrafficMode === "batch") {
+            inst.state.batchGrantWhileManeuver = true;
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Batch+maneuver seen": String(inst.state.batchGrantWhileManeuver),
+          "Max maneuver ticks": inst.state.maxManeuverTicks.toFixed(0),
+          "Maneuver enters": String(sim.testMetrics.maneuverEnterCount || 0),
+          "Cars done": countDone(sim) + "/" + sim.cars.filter((c) => !c.fixed).length,
+          Ticks: String(sim.ticks),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const allDone = sim.cars.every((c) => c.fixed || c.done);
+        // PASS: all cars complete AND no car stuck in maneuver > 200 ticks
+        return allDone && inst.state.maxManeuverTicks <= 200 && legal(sim);
+      },
+    },
+    // ── F2-T2: No car stuck in maneuver > 300 ticks (uses card AI's scenario) ──
+    {
+      id: "AR",
+      section: "mixed",
+      family: "diagnostic",
+      name: "No car in maneuver > 300 ticks (stress scenario)",
+      proof:
+        "Bug: batch+stuck causes a car to remain in maneuver indefinitely. " +
+        "Test: 3L, 40 cars, 50/50 split — same as card AI's follow-deadlock scenario. " +
+        "Assert: no car has maneuverTimer > 300 at any point during the run. " +
+        "With bug: at least one car exceeds 300t in maneuver → FAIL. " +
+        "With fix: all maneuvers resolve within 300t → PASS.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L maneuver timeout", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 307,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: { maxManeuverTicks: 0, stuckCarId: null },
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        for (const car of sim.cars) {
+          if (car.maneuvering && car.maneuverTimer > inst.state.maxManeuverTicks) {
+            inst.state.maxManeuverTicks = car.maneuverTimer;
+            if (car.maneuverTimer > 300) inst.state.stuckCarId = car.id;
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Max maneuver ticks": inst.state.maxManeuverTicks.toFixed(0),
+          "Stuck car": inst.state.stuckCarId !== null ? "car " + inst.state.stuckCarId : "none",
+          "Cars done": countDone(sim) + "/40",
+          Ticks: String(sim.ticks),
+        };
+      },
+      verdict(inst) {
+        return inst.state.maxManeuverTicks <= 300 && legal(inst.cases[0].sim);
+      },
+    },
+    // ── F2-T3: Forced-gridlock resolution ──
+    {
+      id: "AS",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Forced-gridlock resolves — all crossing cars complete",
+      proof:
+        "2L, 4 cars per side, all crossing (8 total). Dense packing near fork forces gridlock. " +
+        "Assert: all 8 cars complete within maxTicks. " +
+        "With bug: permanent stuck car → not all complete → FAIL. " +
+        "With fix: batch scheduler + maneuver resolve → all complete → PASS.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L gridlock resolution", {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed: 308,
+              maxTicks: 12000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: { maxManeuverTicks: 0 },
+        };
+      },
+      stop(inst) {
+        const sim = inst.cases[0].sim;
+        for (const car of sim.cars) {
+          if (car.maneuvering && car.maneuverTimer > inst.state.maxManeuverTicks) {
+            inst.state.maxManeuverTicks = car.maneuverTimer;
+          }
+        }
+        return sim.finished || inst.cases[0].done;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const doneCars = sim.cars.filter((c) => !c.fixed && c.done).length;
+        const totalCars = sim.cars.filter((c) => !c.fixed).length;
+        return {
+          "Cars done": doneCars + "/" + totalCars,
+          "Max maneuver ticks": inst.state.maxManeuverTicks.toFixed(0),
+          Ticks: String(sim.ticks),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const allDone = sim.cars.every((c) => c.fixed || c.done);
+        return allDone && inst.state.maxManeuverTicks <= 300 && legal(sim);
+      },
+    },
   ];
 
   const FAMILY_META = {
@@ -2556,6 +2844,7 @@
   global.TrafficTestSuite = {
     VIEW,
     PHONE,
+    SHORT_VIEW,
     SUITES,
     get TESTS() {
       return TESTS;

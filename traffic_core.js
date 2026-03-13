@@ -863,8 +863,10 @@
         c._targetClearance = this._managedTargetClearance(c, active, rd);
       }
 
+      const noSchedulerActive = !rd.conflictZones.some(z => z.schedulerEnabled);
       for (const c of active) {
         if (c.seg !== 'main' && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
+        if (c.seg === 'main' && noSchedulerActive && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
       }
 
       for (const c of active) {
