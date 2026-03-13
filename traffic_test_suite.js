@@ -1119,7 +1119,7 @@
       family: "guard_green",
       name: "Concurrent maneuver cap",
       proof:
-        "Even under the 3L mixed-traffic jam, no more than 4 cars may be in maneuver mode at the same time.",
+        "Even under the 3L mixed-traffic jam, no more than MAX_ACTIVE_MANEUVERS (8) cars may be in maneuver mode at the same time.",
       build() {
         return {
           cases: [
@@ -1146,7 +1146,7 @@
       },
       verdict(inst) {
         const sim = inst.cases[0].sim;
-        return legal(sim) && sim.testMetrics.maneuverEnterCount > 0 && sim.testMetrics.maxConcurrentManeuverCount <= 4;
+        return legal(sim) && sim.testMetrics.maneuverEnterCount > 0 && sim.testMetrics.maxConcurrentManeuverCount <= 8;
       },
     },
     {
@@ -3084,6 +3084,59 @@
         if (speedDip < 0.05) return false;
         // No collisions
         return legal(sim);
+      },
+    },
+    // ── Reverse maneuver gap violation — cars must not reverse into car behind ──
+    {
+      id: "AZ",
+      section: "mixed",
+      family: "guard_green",
+      name: "Reverse maneuver must not cause overlap (80-car stress)",
+      proof:
+        "3L/80 cars, seed 777, 1000 ticks. High density triggers frequent maneuver+reverse. " +
+        "Bug: _sameLaneRuntimeGap only checks forward direction, so reverse candidates " +
+        "can place a car too close to the car behind it. Next tick the cars overlap. " +
+        "Without fix: 171 overlaps. Fix: check rear gap for reverse candidates in " +
+        "_isLegalPoseNeighbors. PASS if 0 overlaps and 0 wall escapes.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L/80 reverse-gap stress", {
+              lanes: 3,
+              cars: 80,
+              split: 50,
+              seed: 777,
+              w: PHONE.w,
+              h: PHONE.h,
+              maxTicks: 1000,
+              stepsPerFrame: 10,
+            }),
+          ],
+          state: { maxOverlaps: 0, wallEscapes: 0, maneuverReverses: 0 },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.wallEscapes = sim.testMetrics.wallEscapeCount;
+        inst.state.maxOverlaps = Math.max(inst.state.maxOverlaps, sim.testMetrics.overlapCount);
+        for (const c of sim.cars) {
+          if (c.maneuvering && c.speed < -0.01) inst.state.maneuverReverses++;
+        }
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Ticks: String(Math.round(sim.ticks)),
+          "Cars done": countDone(sim) + "/" + sim.cars.filter((c) => !c.fixed).length,
+          "Wall escapes": String(inst.state.wallEscapes),
+          "Overlaps": String(sim.testMetrics.overlapCount),
+          "Maneuver reverses seen": String(inst.state.maneuverReverses),
+          "Maneuver enters": String(sim.testMetrics.maneuverEnterCount || 0),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return sim.testMetrics.overlapCount === 0 && inst.state.wallEscapes === 0;
       },
     },
   ];

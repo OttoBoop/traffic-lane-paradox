@@ -619,8 +619,7 @@
         const targetV = this.started ? P.v0 : 0;
         c.speed = Math.max(0, c.speed + Math.max(idm(c.speed, targetV, gap, dv), -IDM_B * 4) * dt);
         c.steer = 0; c.desSpd = c.speed; c.desSt = 0;
-        c.x += c.speed * dt * Math.cos(c.th);
-        c.y += c.speed * dt * Math.sin(c.th);
+        this._commitPose(c, c.x + c.speed * dt * Math.cos(c.th), c.y + c.speed * dt * Math.sin(c.th), c.th, rd);
         c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th);
       }
     }
@@ -1022,7 +1021,7 @@
       for (const c of moveOrder) {
         if (c.fixed) { c.speed = 0; c.steer = 0; continue; }
         const pose = this._chooseLegalMove(c, dt, rd, active);
-        c.x = pose.x; c.y = pose.y; c.th = pose.th; c.speed = pose.speed; c.steer = pose.steer;
+        this._commitPose(c, pose.x, pose.y, pose.th, rd); c.speed = pose.speed; c.steer = pose.steer;
         c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th); // update after commit (P3)
       }
 
@@ -1030,7 +1029,7 @@
         if (c.fixed) continue;
         if (Math.abs(c.speed) < 0.5 && c.speed >= 0 && c._pq) {
           let hDiff = c._pq.ang - c.th; while (hDiff > Math.PI) hDiff -= 2 * Math.PI; while (hDiff < -Math.PI) hDiff += 2 * Math.PI;
-          c.th += hDiff * 0.03 * dt;
+          this._commitPose(c, c.x, c.y, c.th + hDiff * 0.03 * dt, rd);
         }
       }
 
@@ -1038,17 +1037,17 @@
         if (c.fixed) continue;
         if (c.seg === 'main') {
           let hd = c.th - (-Math.PI / 2); while (hd > Math.PI) hd -= 2 * Math.PI; while (hd < -Math.PI) hd += 2 * Math.PI;
-          if (Math.abs(hd) > 0.8) { c.th = -Math.PI / 2 + Math.sign(hd) * 0.8; c.steer *= 0.5; }
+          if (Math.abs(hd) > 0.8) { this._commitPose(c, c.x, c.y, -Math.PI / 2 + Math.sign(hd) * 0.8, rd); c.steer *= 0.5; }
         }
       }
 
       for (const c of active) {
         if (c.pathIdx >= c.path.length - 3 && c.seg !== 'main') c.done = true;
-        if (c.seg === 'main' && c.y <= rd.forkY + 5) {
+        if (c.seg === 'main' && c.y <= rd.forkY + CAR_L / 2 + 2) {
           const entryClearance = this._managedTargetClearance(c, active, rd);
           c._targetClearance = entryClearance;
           if (entryClearance < EXIT_CLEARANCE) {
-            c.y = Math.max(c.y, rd.forkY + 6);
+            this._commitPose(c, c.x, Math.max(c.y, rd.forkY + CAR_L / 2 + 3), c.th, rd);
             c.speed = 0;
             c.desSpd = 0;
             c.trafficMode = 'hold_exit';
@@ -1113,9 +1112,9 @@
           const [hi, lo] = pa >= pb ? [a, b] : [b, a];
           const loDx = lo.x - hi.x, loDy = lo.y - hi.y;
           const dist = Math.sqrt(loDx * loDx + loDy * loDy);
-          if (dist < 0.01) { lo.x += 1; lo.speed = 0; continue; }
+          if (dist < 0.01) { this._commitPose(lo, lo.x + 1, lo.y, lo.th, rd); lo.speed = 0; continue; }
           const push = safeSepDist - dist + 0.5;
-          lo.x += (loDx / dist) * push; lo.y += (loDy / dist) * push; lo.speed = 0;
+          this._commitPose(lo, lo.x + (loDx / dist) * push, lo.y + (loDy / dist) * push, lo.th, rd); lo.speed = 0;
         }
       }
 
@@ -1131,7 +1130,7 @@
         }
       }
 
-      for (const c of active) {
+      for (const c of allActive) {
         if (this._isOutsideRoad(c, rd)) { this.testMetrics.wallEscapeCount++; this._event('wall_escape', { carId: c.id }); }
         if (c.seg !== 'main' && !c.fixed && Math.abs(c.speed) < 0.1) {
           c._branchStopTicks = (c._branchStopTicks || 0) + dt;
@@ -1524,7 +1523,19 @@
     }
 
     _isOutsideRoad(c, rd) {
-      return this._isPoseOutsideRoad(c, { x: c.x, y: c.y, th: c.th }, rd);
+      return this._isPoseOutsideRoad(c, { x: c.x, y: c.y, th: c.th }, rd, 0);
+    }
+
+    // Universal wall guard — ALL position changes must go through this choke point.
+    // Walls are immovable forces. If the proposed pose is outside the road, the write
+    // is REJECTED and the car stays where it is. Returns true if accepted, false if rejected.
+    _commitPose(c, nx, ny, nth, rd) {
+      if (this._isPoseOutsideRoad(c, { x: nx, y: ny, th: nth }, rd, 0)) {
+        c.speed = 0;
+        return false;
+      }
+      c.x = nx; c.y = ny; c.th = nth;
+      return true;
     }
 
     _isLegalPose(c, pose, rd, active, margin = PROJ_MARGIN) {
@@ -1551,9 +1562,15 @@
       if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
       if (this._poseOverlapsCarsNeighbors(pose, overlapNeighbors, margin)) return false;
       const poseCar = { ...c, x: pose.x, y: pose.y, th: pose.th };
+      const isReverse = pose.speed !== undefined && pose.speed < 0;
       for (const o of gapNeighbors) {
         const gap = this._sameLaneRuntimeGap(poseCar, o);
         if (gap !== Infinity && gap < HARD_FOLLOW_GAP) return false;
+        // Reverse candidates: also enforce gap to cars behind (which the car reverses toward)
+        if (isReverse) {
+          const rearGap = this._sameLaneRuntimeGap(o, poseCar);
+          if (rearGap !== Infinity && rearGap < HARD_FOLLOW_GAP) return false;
+        }
       }
       return true;
     }
@@ -1699,6 +1716,14 @@
         if (err.cte > currentErr.cte + 0.5) continue;
         if (err.hErr > currentErr.hErr + 0.05) continue;
         return { x: pose.x, y: pose.y, th: pose.th, speed, steer: c.desSt };
+      }
+      // Zero-margin fallback (matches traffic planner behavior)
+      for (const speed of speeds) {
+        if (speed <= 0) continue;
+        const pose = this._candidatePose(c, speed, c.desSt, dt);
+        if (this._isLegalPoseNeighbors(c, pose, rd, neighbors, 0)) {
+          return { x: pose.x, y: pose.y, th: pose.th, speed, steer: c.desSt };
+        }
       }
       return { x: c.x, y: c.y, th: c.th, speed: 0, steer: c.steer };
     }

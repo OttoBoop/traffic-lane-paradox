@@ -200,8 +200,11 @@ Render (each frame):
 | F2-T3 | ~~Write RED test: forced-gridlock~~ → Card AS exists and fails | None | No | M | ✅ |
 | F2-T4 | Implement batch+stuck fix: add third exit branch + path re-alignment (lines 693-722) | F2-T1, F2-T2, F2-T3 (human confirms RED) | No | M | ✅ |
 | F2-T5 | Verify AQ/AR/AS GREEN; run guard tests S/X/AA/AH | F2-T4 | No | S | ✅ |
+| F2-T6 | Fix same-target yield delay: add `c.target !== zone.activeBatchTarget` to `_assignBatchStates` yield condition (line ~1352). Write card AX (customCase: 3 cars, deterministic). | F2-T5 | No | S | ✅ |
 
 **Note on F2-T1/T2/T3:** Cards AQ, AR, AS were already written. They are failing for the correct reason (batch+stuck bug exists). Human confirmation of RED meaning required before F2-T4.
+
+**Note on F2-T6:** Discovered via user's browser screenshots — middle-lane car with clear same-branch path froze at fork while batch ran for its own target. Root cause: `_assignBatchStates` yielded ALL non-batch near-fork cars when `activeBatchId !== null`, regardless of target match. Same-branch paths never cross (line 370 skips same-branch pairs), so yielding same-target cars is unnecessary. Test card AX uses a `customCase` with specific car placements that deterministically triggers the bug (car 2 on 1-left, 15px behind batch member, too close to trail/share). Guard suite 18/19 (AH pre-existing), diagnostics AQ/AR/AS all pass.
 
 **Tests Required:**
 
@@ -210,6 +213,7 @@ Render (each frame):
 | Car with batch grant exits maneuver in 1 tick | Headless Node.js (card AQ) | Yes — confirm RED before F2-T4 | PASS: car exits within 1 tick of canExit=true with assignedMode=batch | `--id AQ` FAIL→PASS |
 | No car stuck in maneuver > 300t | Headless Node.js (card AR) | Yes — confirm RED before F2-T4 | PASS: zero cars remain in maneuver > 300t | `--id AR` FAIL→PASS |
 | Fork gridlock resolves < 300t | Headless Node.js (card AS) | Yes — confirm RED before F2-T4 | PASS: deadlock clears | `--id AS` FAIL→PASS |
+| Same-target car must not yield when batch is for its target | Headless Node.js (card AX) | No | PASS: 0 same-target yield ticks, all cars done, legal | `--id AX` FAIL→PASS |
 | Guard tests unaffected | Headless Node.js (guard) | No | S/X/AA/AH all PASS | CLI output all PASS |
 
 ---
@@ -535,7 +539,8 @@ P6-verify ─► P7 ─► P5 ─► P7-verify ───────────
 | F2-T2 | Card AR — no maneuver > 300t (exists, failing) | None | F2-T4 | ✅ |
 | F2-T3 | Card AS — forced gridlock (exists, failing) | None | F2-T4 | ✅ |
 | F2-T4 | Implement batch+stuck fix (lines 693-722) | F2-T1, F2-T2, F2-T3 | F2-T5 | ✅ |
-| F2-T5 | Verify AQ/AR/AS GREEN + guards S/X/AA/AH | F2-T4 | MC-1 (partial) | ✅ |
+| F2-T5 | Verify AQ/AR/AS GREEN + guards S/X/AA/AH | F2-T4 | F2-T6, MC-1 (partial) | ✅ |
+| F2-T6 | Same-target yield fix + card AX (customCase) | F2-T5 | MC-1 (partial) | ✅ |
 | F3-T1 | Early exit from `_chooseBestLegalCandidate` | None | F3-T3 | ✅ |
 | F3-T2 | `_hasLegalForwardProgressMove` per-tick cache | None | F3-T3 | ✅ |
 | P1 | Neighbor cache (`c._cachedNeighbors`) | None | P5-guard | ✅ |
@@ -685,3 +690,4 @@ The sequential-commit architecture means that after Car A moves, Car B sees Car 
 | 2026-03-13 | F2-T4/T5 ✅ — batch+stuck fix + 180-tick cascade timeout + post-tick separation pass (commit c8bb088). AQ/AR/AS all pass. P1/P2/P3/P4 ✅ — neighbor cache, broad-phase removal, trig cache, fast-path shortcut all implemented. P5-guard: 200t wall 6,477→6,335ms (-2%), `_isLegalPoseNeighbors` calls 142K→22K (-84%), time 19,337→2,503ms (-87%). AH still timing out — needs P5 candidate reduction. | Claude Sonnet 4.6 |
 | 2026-03-13 | **Performance Wave 4 (P8/P10):** Off-screen car sleep + safety metrics optimization. 80-car 200-tick wall time: 11,392ms→2,876ms (**-75%**, 3.96× speedup). P8: Cars far from stop line (y > stopY + 3×SPAWN_SPACING) skip full pipeline — get minimal IDM follow + bicycle model step. At 80 cars, ~90% of car-ticks are sleeping. P10: Safety metrics now only check awake cars (O(awake²) instead of O(N²)). 4 new diagnostic cards (AT/AU/AV/AW) all PASS. Guards S/X/AA/AC and correctness cards AQ/AR/AS all GREEN. | Claude Opus 4.6 |
 | 2026-03-13 | **P7/P5/P7-verify ✅:** Merge-scenario test card AY (2L, 4 cars, MOBIL merge + follower braking). P5 candidate reduction: speed scales 6→4 [0.85,0.55,0.25,0.1], steer scales 4→3 [0.55,0.35,0.15], blocker scales 3→2 [0.4,0.25]. Avg candidates 23→18.8 (-18%). 80-car wall time 2,876→2,530ms (-12%). Total improvement from baseline: 11,392→2,530ms (**-78%**). Initial aggressive P5 (3 speed, 2 steer) broke AQ/AR/AS (33-36/40 cars); adjusted to conservative reduction. All 11 cards PASS: S/X/AA/AQ/AR/AS/AT/AU/AV/AW/AY. | Claude Opus 4.6 |
+| 2026-03-13 | **F2-T6 ✅:** Same-target yield delay fix. Added `c.target !== zone.activeBatchTarget` to `_assignBatchStates` yield condition (line 1352). New diagnostic card AX uses `customCase` (3 cars: 0-right enables scheduler, two 1-left cars 15px apart — too close to trail/share). Test confirmed RED without fix (1 violation tick, car2 yields for same-target batch), GREEN with fix (0 violations). Debug revealed multi-zone test detection bug: original `standardCase` test checked ALL zones against each yielding car, producing false positives when a car correctly yielded for one zone but a different zone had a matching batch target. Fixed by adding `zone.paths.has(car.pathKey)` guard. Guard suite 18/19 (AH pre-existing), AQ/AR/AS all pass. | Claude Sonnet 4.6 |
