@@ -3426,9 +3426,10 @@
         };
       },
       verdict(inst) {
-        // RED test: nearMissLog must exist AND have entries.
-        // This FAILS until _diagnosticOverlapCheck is implemented.
-        return inst.state.totalNearMisses > 0;
+        // Both diagnostic logs must exist AND have entries.
+        // nearMissLog: PASSES after F1-T1 (already implemented)
+        // overlapEventLog: FAILS until F1-T2 adds margin-based overlap detection
+        return inst.state.totalNearMisses > 0 && inst.state.totalOverlapEvents > 0;
       },
     },
   ];
