@@ -91,6 +91,49 @@
       stopLightStop: '#ea7767',
       stopLightRing: '#2f5059',
       queueText: '#294951'
+    },
+    cityNature: {
+      scene: 'city_nature',
+      canvas: '#e8e4d8',
+      urbanGround: '#b8b4a8',
+      grassGround: '#7db356',
+      grassLight: '#93c46a',
+      forestDark: '#1a5c35',
+      forest: '#2d6e49',
+      forestAlt: '#57905d',
+      farmRow: '#6a9e48',
+      farmFence: '#8b7355',
+      fieldA: '#7db356',
+      fieldB: '#a8c45a',
+      fieldC: '#c4b87a',
+      barnWall: '#8b3a2a',
+      barnRoof: '#5c2216',
+      barnDoor: '#4a1a0e',
+      pond: '#5bafc5',
+      pondEdge: '#3d8fa5',
+      fence: '#6b4e2e',
+      houseWalls: ['#f2e6d0', '#d4a574', '#c4785a', '#f5eed8'],
+      houseSides: ['#d6c8a8', '#b8884e', '#a85e3e', '#d8d0b0'],
+      houseRoofs: ['#8b4513', '#a0522d', '#6b3a2a', '#7a4e3a'],
+      houseShadow: 'rgba(60, 40, 20, 0.30)',
+      windowColor: 'rgba(120, 160, 200, 0.7)',
+      windowFrame: '#4a3a28',
+      doorColor: '#5a3a1e',
+      yardGreen: '#8cbf65',
+      yardBrown: '#c4b08a',
+      sidewalk: '#cec4a8',
+      fountainWater: '#78c3dc',
+      fountainRing: '#9e8c68',
+      roadFill: '#565d65',
+      roadGuide: 'rgba(200, 200, 190, 0.30)',
+      roadDivider: '#d0cfc0',
+      roadStroke: '#3a3d42',
+      stopGo: '#2a5a2a',
+      stopStop: '#5a2020',
+      stopLightGo: '#22bb22',
+      stopLightStop: '#bb1818',
+      stopLightRing: '#3a3d42',
+      queueText: '#555'
     }
   };
 
@@ -534,7 +577,9 @@
         minRuntimeSameLaneGap: Infinity,
         maxConcurrentManeuverCount: 0,
         sleepTicksTotal: 0,
-        awakeTicksTotal: 0
+        awakeTicksTotal: 0,
+        nearMissLog: [],
+        marginOverlapCount: 0
       };
     }
 
@@ -553,6 +598,34 @@
       this.testMetrics.lateCommitLaneChangeCount = this.commitOscillationCount;
       this.testMetrics.preSplitInnerBoundarySampleCount = this.road ? this.road.preSplitInnerBoundarySampleCount : 0;
       this.testMetrics.plannerIllegalCount = this.plannerIllegalCount;
+    }
+
+    _diagnosticOverlapCheck(active, tick) {
+      const nearDist = CAR_L * 1.5;
+      const broadSq = (CAR_L * 2) * (CAR_L * 2);
+      for (let i = 0; i < active.length; i++) {
+        for (let j = i + 1; j < active.length; j++) {
+          const a = active[i], b = active[j];
+          if (a.done || b.done) continue;
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq > broadSq) continue;
+          const dist = Math.sqrt(distSq);
+          if (dist < nearDist) {
+            const entry = {
+              tick, aId: a.id, bId: b.id,
+              ax: a.x, ay: a.y, ath: a.th,
+              bx: b.x, by: b.y, bth: b.th,
+              gap: dist,
+              aManeuver: !!(a.maneuvering),
+              bManeuver: !!(b.maneuvering),
+            };
+            if (this.testMetrics.nearMissLog.length < 200) {
+              this.testMetrics.nearMissLog.push(entry);
+            }
+          }
+        }
+      }
     }
 
     _sameLaneRuntimeGap(a, b) {
@@ -619,7 +692,7 @@
         const targetV = this.started ? P.v0 : 0;
         c.speed = Math.max(0, c.speed + Math.max(idm(c.speed, targetV, gap, dv), -IDM_B * 4) * dt);
         c.steer = 0; c.desSpd = c.speed; c.desSt = 0;
-        this._commitPose(c, c.x + c.speed * dt * Math.cos(c.th), c.y + c.speed * dt * Math.sin(c.th), c.th, rd);
+        this._commitPose(c, c.x + c.speed * dt * Math.cos(c.th), c.y + c.speed * dt * Math.sin(c.th), c.th, rd, allActive);
         c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th);
       }
     }
@@ -1029,15 +1102,19 @@
         if (c.fixed) continue;
         if (Math.abs(c.speed) < 0.5 && c.speed >= 0 && c._pq) {
           let hDiff = c._pq.ang - c.th; while (hDiff > Math.PI) hDiff -= 2 * Math.PI; while (hDiff < -Math.PI) hDiff += 2 * Math.PI;
-          this._commitPose(c, c.x, c.y, c.th + hDiff * 0.03 * dt, rd);
+          this._commitPose(c, c.x, c.y, c.th + hDiff * 0.03 * dt, rd, active);
         }
       }
 
+      // Heading clamp — guarded for ALL cars via _commitPose overlap guard.
       for (const c of active) {
         if (c.fixed) continue;
         if (c.seg === 'main') {
           let hd = c.th - (-Math.PI / 2); while (hd > Math.PI) hd -= 2 * Math.PI; while (hd < -Math.PI) hd += 2 * Math.PI;
-          if (Math.abs(hd) > 0.8) { this._commitPose(c, c.x, c.y, -Math.PI / 2 + Math.sign(hd) * 0.8, rd); c.steer *= 0.5; }
+          if (Math.abs(hd) > 0.8) {
+            const clampedTh = -Math.PI / 2 + Math.sign(hd) * 0.8;
+            if (this._commitPose(c, c.x, c.y, clampedTh, rd, active)) { c.steer *= 0.5; }
+          }
         }
       }
 
@@ -1047,7 +1124,7 @@
           const entryClearance = this._managedTargetClearance(c, active, rd);
           c._targetClearance = entryClearance;
           if (entryClearance < EXIT_CLEARANCE) {
-            this._commitPose(c, c.x, Math.max(c.y, rd.forkY + CAR_L / 2 + 3), c.th, rd);
+            this._commitPose(c, c.x, Math.max(c.y, rd.forkY + CAR_L / 2 + 3), c.th, rd, active);
             c.speed = 0;
             c.desSpd = 0;
             c.trafficMode = 'hold_exit';
@@ -1101,6 +1178,7 @@
       // Post-tick separation pass: if heading corrections or sequential planning convergence caused
       // a physical overlap, push the lower-priority car along the separation direction to safe
       // distance (2×CAR_HALF_DIAG + 2px), preventing persistent deadlocks and satOverlap counts.
+      // Separation pass — guarded: prefer direction that doesn't cascade into third car.
       const safeSepDist = CAR_HALF_DIAG * 2 + 2;
       for (let i = 0; i < active.length; i++) {
         for (let j = i + 1; j < active.length; j++) {
@@ -1112,9 +1190,12 @@
           const [hi, lo] = pa >= pb ? [a, b] : [b, a];
           const loDx = lo.x - hi.x, loDy = lo.y - hi.y;
           const dist = Math.sqrt(loDx * loDx + loDy * loDy);
-          if (dist < 0.01) { this._commitPose(lo, lo.x + 1, lo.y, lo.th, rd); lo.speed = 0; continue; }
+          if (dist < 0.01) { this._commitPose(lo, lo.x + 1, lo.y, lo.th, rd, active, hi.id); lo.speed = 0; continue; }
           const push = safeSepDist - dist + 0.5;
-          this._commitPose(lo, lo.x + (loDx / dist) * push, lo.y + (loDy / dist) * push, lo.th, rd); lo.speed = 0;
+          const nx = lo.x + (loDx / dist) * push, ny = lo.y + (loDy / dist) * push;
+          // Push with overlap guard — excludes hi (we're separating FROM it).
+          // If push would cascade into a third car, _commitPose rejects and car stays put.
+          this._commitPose(lo, nx, ny, lo.th, rd, active, hi.id); lo.speed = 0;
         }
       }
 
@@ -1139,6 +1220,8 @@
         }
         this.testMetrics.maxBlockedBranchStopTicks = Math.max(this.testMetrics.maxBlockedBranchStopTicks, c._branchStopTicks || 0);
       }
+
+      this._diagnosticOverlapCheck(active, this.ticks);
 
       for (const c of active) { delete c._pq; delete c._gap; delete c._progress; delete c._progressDelta; delete c._conflictProgress; delete c._targetClearance; }
 
@@ -1526,13 +1609,27 @@
       return this._isPoseOutsideRoad(c, { x: c.x, y: c.y, th: c.th }, rd, 0);
     }
 
-    // Universal wall guard — ALL position changes must go through this choke point.
+    // Universal wall + overlap guard — ALL position changes must go through this choke point.
     // Walls are immovable forces. If the proposed pose is outside the road, the write
-    // is REJECTED and the car stays where it is. Returns true if accepted, false if rejected.
-    _commitPose(c, nx, ny, nth, rd) {
+    // is REJECTED and the car stays where it is. When guardList is provided, also rejects
+    // poses that SAT-overlap any car in the list (excludeId is skipped, e.g. separation target).
+    // Returns true if accepted, false if rejected.
+    _commitPose(c, nx, ny, nth, rd, guardList = null, excludeId = -1) {
       if (this._isPoseOutsideRoad(c, { x: nx, y: ny, th: nth }, rd, 0)) {
         c.speed = 0;
         return false;
+      }
+      if (guardList) {
+        const broadSq = (CAR_L * 2) * (CAR_L * 2);
+        for (const o of guardList) {
+          if (o.id === c.id || o.id === excludeId || o.done) continue;
+          const dx = nx - o.x, dy = ny - o.y;
+          if (dx * dx + dy * dy > broadSq) continue;
+          if (satOverlap({ x: nx, y: ny, th: nth }, o)) {
+            c.speed = 0;
+            return false;
+          }
+        }
       }
       c.x = nx; c.y = ny; c.th = nth;
       return true;
@@ -1900,6 +1997,10 @@
       this.sim = sim;
       this.opts = opts || {};
       this.theme = RENDER_THEMES[this.opts.theme] || RENDER_THEMES.classic;
+      this._sceneBuf = null;   // offscreen buffer canvas
+      this._sceneBufW = 0;
+      this._sceneBufH = 0;
+      this._sceneBufTheme = null;  // theme.scene value when buffer was drawn
     }
     _trace(pts) {
       const ctx = this.ctx;
@@ -1982,6 +2083,25 @@
       ].filter(poly => poly[0].length && poly[1].length);
       return { splitT, mainL, mainR, leftOuter, rightOuter, leftInner, rightInner, surfaces };
     }
+    _invalidateSceneBuf() { this._sceneBuf = null; }
+    _ensureSceneBuf(rd, lw, lh) {
+      const sc = this.theme.scene;
+      if (sc === 'classic') { this._sceneBuf = null; return; }
+      if (this._sceneBuf && this._sceneBufW === lw && this._sceneBufH === lh && this._sceneBufTheme === sc) return;
+      const buf = document.createElement('canvas');
+      buf.width = lw; buf.height = lh;
+      const bCtx = buf.getContext('2d');
+      // Save current ctx, swap for buffer ctx so helpers (like _treeCluster) draw to buffer
+      const origCtx = this.ctx;
+      this.ctx = bCtx;
+      if (sc === 'rio_satellite') this._scene(rd, lw, lh);
+      else if (sc === 'city_nature') this._sceneCityNature(rd, lw, lh, bCtx);
+      this.ctx = origCtx;
+      this._sceneBuf = buf;
+      this._sceneBufW = lw;
+      this._sceneBufH = lh;
+      this._sceneBufTheme = sc;
+    }
     draw() {
       const ctx = this.ctx, dpr = devicePixelRatio || 1, w = this.cv.width / dpr, h = this.cv.height / dpr;
       const rd = this.sim.road;
@@ -1997,7 +2117,8 @@
       ctx.fillRect(0, 0, w, h);
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
-      if (this.theme.scene === 'rio_satellite') this._scene(rd, logicalW, logicalH);
+      this._ensureSceneBuf(rd, logicalW, logicalH);
+      if (this._sceneBuf) ctx.drawImage(this._sceneBuf, 0, 0);
       this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH); ctx.restore();
     }
     _scene(rd, w, h) {
@@ -2173,6 +2294,305 @@
       this._treeCluster(m.wedgeCenterX - 28 * m.baseScale, m.churchY + 10 * m.baseScale, 12 * m.baseScale, 8 * m.baseScale, 5, t.forest, t.forestAlt);
       this._treeCluster(m.wedgeCenterX + 28 * m.baseScale, m.churchY + 10 * m.baseScale, 12 * m.baseScale, 8 * m.baseScale, 5, t.forest, t.forestAlt);
     }
+    /* ── City & Nature scene ─────────────────────────────── */
+    _drawTopDownHouse(ctx, x, y, rw, rh, t, ci, hasChimney) {
+      // Top-down house: shadow + roof rectangle + ridge line + chimney
+      const roofCol = t.houseRoofs[ci % t.houseRoofs.length];
+      const wallCol = t.houseWalls[ci % t.houseWalls.length];
+      const overhang = 1.5;
+
+      // Shadow
+      ctx.fillStyle = t.houseShadow;
+      ctx.fillRect(x + 2.5, y + 2.5, rw, rh);
+
+      // Wall strip visible at bottom edge (slight perspective hint)
+      ctx.fillStyle = wallCol;
+      ctx.fillRect(x, y, rw, rh);
+
+      // Roof with overhang
+      ctx.fillStyle = roofCol;
+      ctx.fillRect(x - overhang, y - overhang, rw + overhang * 2, rh + overhang * 2);
+
+      // Two-slope shading: right half slightly darker
+      ctx.fillStyle = 'rgba(0,0,0,0.1)';
+      ctx.fillRect(x - overhang + (rw + overhang * 2) / 2, y - overhang, (rw + overhang * 2) / 2, rh + overhang * 2);
+
+      // Ridge line down center (horizontal if wider, vertical if taller)
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      if (rw >= rh) {
+        // Ridge runs horizontally
+        ctx.moveTo(x - overhang + 1, y + rh / 2);
+        ctx.lineTo(x + rw + overhang - 1, y + rh / 2);
+      } else {
+        // Ridge runs vertically
+        ctx.moveTo(x + rw / 2, y - overhang + 1);
+        ctx.lineTo(x + rw / 2, y + rh + overhang - 1);
+      }
+      ctx.stroke();
+
+      // Chimney (small dark square on roof corner)
+      if (hasChimney) {
+        const chS = Math.min(rw, rh) * 0.18;
+        ctx.fillStyle = t.houseSides[ci % t.houseSides.length];
+        ctx.fillRect(x + rw * 0.7, y + rh * 0.15, chS, chS);
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x + rw * 0.7, y + rh * 0.15, chS, chS);
+      }
+    }
+    _drawTopDownBarn(ctx, x, y, bw, bh, t) {
+      // Top-down barn: shadow + large roof + ridge + X mark
+      // Shadow
+      ctx.fillStyle = t.houseShadow;
+      ctx.fillRect(x + 3, y + 3, bw, bh);
+      // Barn roof
+      const ov = 2;
+      ctx.fillStyle = t.barnRoof;
+      ctx.fillRect(x - ov, y - ov, bw + ov * 2, bh + ov * 2);
+      // Two-slope shading
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(x - ov + (bw + ov * 2) / 2, y - ov, (bw + ov * 2) / 2, bh + ov * 2);
+      // Ridge line
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x - ov + 2, y + bh / 2);
+      ctx.lineTo(x + bw + ov - 2, y + bh / 2);
+      ctx.stroke();
+      // X mark on roof (barn identifier)
+      ctx.strokeStyle = t.barnWall;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x + bw * 0.2, y + bh * 0.2);
+      ctx.lineTo(x + bw * 0.8, y + bh * 0.8);
+      ctx.moveTo(x + bw * 0.8, y + bh * 0.2);
+      ctx.lineTo(x + bw * 0.2, y + bh * 0.8);
+      ctx.stroke();
+    }
+    _sceneCityNature(rd, w, h, ctx) {
+      const t = this.theme, m = this._sceneMetrics(rd, w, h);
+      const rng = Math.random;
+      const roadL = rd.cx - m.roadHalf;
+      const roadR = rd.cx + m.roadHalf;
+
+      // ── Ground zones ──────────────────────────────────
+      // ABOVE fork: both sides are nature (green)
+      ctx.fillStyle = t.grassGround;
+      ctx.fillRect(0, 0, w, rd.forkY);
+      // BELOW fork: left = urban gray, right = green grass
+      ctx.fillStyle = t.urbanGround;
+      ctx.fillRect(0, rd.forkY, rd.cx, h - rd.forkY);
+      ctx.fillStyle = t.grassGround;
+      ctx.fillRect(rd.cx, rd.forkY, w - rd.cx, h - rd.forkY);
+
+      // ── V-area: dark green fill + dense forest ────────
+      const leftInner = rd.sampleBranchEdge('left', 'inner', 20);
+      const rightInner = rd.sampleBranchEdge('right', 'inner', 20);
+      ctx.fillStyle = t.forestDark;
+      ctx.beginPath();
+      ctx.moveTo(rd.cx, rd.forkY);
+      for (const p of leftInner) ctx.lineTo(p.x, p.y);
+      ctx.lineTo(leftInner[leftInner.length - 1]?.x ?? rd.cx - 30, 0);
+      ctx.lineTo(rightInner[rightInner.length - 1]?.x ?? rd.cx + 30, 0);
+      for (let i = rightInner.length - 1; i >= 0; i--) ctx.lineTo(rightInner[i].x, rightInner[i].y);
+      ctx.closePath();
+      ctx.fill();
+      // Tree clusters on dark fill — lighter greens for contrast
+      const vCx = m.wedgeCenterX;
+      const vCy = (m.topWedgeY + rd.forkY) * 0.5;
+      const vRx = Math.max(18, m.wedgeWidth * 0.45);
+      const vRy = Math.max(16, (rd.forkY - m.topWedgeY) * 0.45);
+      const vN = Math.round(40 * m.baseScale);
+      this._treeCluster(vCx, vCy, vRx, vRy, vN, t.forestAlt, t.grassLight);
+      this._treeCluster(vCx, vCy - vRy * 0.3, vRx * 0.7, vRy * 0.5, Math.round(vN * 0.5), t.forest, t.forestAlt);
+      this._treeCluster(vCx, rd.forkY - 6, vRx * 0.45, 6, Math.round(vN * 0.35), t.forestAlt, t.forest);
+      this._treeCluster(vCx, m.topWedgeY + 10, vRx * 0.4, 10, Math.round(vN * 0.3), t.forest, t.grassLight);
+
+      // ── Upper area: forest on BOTH sides of road ──────
+      // Left-upper forest (above fork, left of road)
+      ctx.fillStyle = t.forestDark;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(0, 0, roadL, rd.forkY * 0.45);
+      ctx.globalAlpha = 1;
+      this._treeCluster(roadL * 0.4, 25, roadL * 0.35, 16, Math.round(16 * m.baseScale), t.forest, t.forestAlt);
+      this._treeCluster(roadL * 0.5, rd.forkY * 0.3, roadL * 0.3, 12, Math.round(10 * m.baseScale), t.forestAlt, t.forest);
+      // Scattered left-upper trees
+      for (let i = 0; i < Math.round(20 * m.baseScale); i++) {
+        const tx = 4 + rng() * (roadL - 10);
+        const ty = 4 + rng() * (rd.forkY * 0.6);
+        const normY = ty / rd.forkY;
+        if (rng() > (1 - normY * 0.7)) continue;
+        const tr = (2.5 + rng() * 3.5) * (0.8 + (1 - normY) * 0.5);
+        ctx.fillStyle = t.houseShadow;
+        ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1.2, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = rng() > 0.3 ? t.forest : t.forestAlt;
+        ctx.beginPath(); ctx.arc(tx, ty, tr, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Right-upper forest (above fork, right of road)
+      ctx.fillStyle = t.forestDark;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(roadR, 0, w - roadR, rd.forkY * 0.45);
+      ctx.globalAlpha = 1;
+      this._treeCluster(w * 0.75, 20, (w - roadR) * 0.42, 16, Math.round(20 * m.baseScale), t.forest, t.forestAlt);
+      this._treeCluster(w * 0.6, 35, (w - roadR) * 0.3, 14, Math.round(14 * m.baseScale), t.forestAlt, t.forest);
+      this._treeCluster(w * 0.7, rd.forkY * 0.35, (w - roadR) * 0.3, 10, Math.round(10 * m.baseScale), t.forestAlt, t.forest);
+      // Scattered right-upper trees
+      for (let i = 0; i < Math.round(25 * m.baseScale); i++) {
+        const tx = roadR + 6 + rng() * (w - roadR - 12);
+        const ty = 4 + rng() * (rd.forkY * 0.7);
+        const normY = ty / rd.forkY;
+        if (rng() > (1 - normY * 0.8)) continue;
+        const tr = (3 + rng() * 4) * (0.8 + (1 - normY) * 0.6);
+        ctx.fillStyle = t.houseShadow;
+        ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1.5, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = rng() > 0.3 ? t.forest : t.forestAlt;
+        ctx.beginPath(); ctx.arc(tx, ty, tr, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // ── Farm area (right side, below fork) ─────────────
+      const farmL = roadR + 6;
+      const farmTop = rd.forkY + 12;
+      const farmBot = h - 6;
+      const farmW = w - farmL - 3;
+      const farmH = farmBot - farmTop;
+
+      // Irregular field patches — varied sizes with gaps
+      const patches = [
+        { rx: 0,    ry: 0,    rw: 0.48, rh: 0.30, ci: 0 },
+        { rx: 0.52, ry: 0,    rw: 0.48, rh: 0.28, ci: 1 },
+        { rx: 0,    ry: 0.33, rw: 0.35, rh: 0.25, ci: 2 },
+        { rx: 0.38, ry: 0.31, rw: 0.62, rh: 0.27, ci: 0 },
+        { rx: 0,    ry: 0.62, rw: 0.55, rh: 0.36, ci: 1 },
+        { rx: 0.58, ry: 0.60, rw: 0.42, rh: 0.38, ci: 2 },
+      ];
+      const fieldColors = [t.fieldA, t.fieldB, t.fieldC];
+      for (const p of patches) {
+        const px = farmL + p.rx * farmW;
+        const py = farmTop + p.ry * farmH;
+        const pw = p.rw * farmW;
+        const ph = p.rh * farmH;
+        ctx.fillStyle = fieldColors[p.ci];
+        ctx.fillRect(px, py, pw, ph);
+        ctx.strokeStyle = t.farmRow; ctx.lineWidth = 0.5;
+        for (let ry = py + 4; ry < py + ph - 2; ry += 5) {
+          ctx.beginPath(); ctx.moveTo(px + 2, ry); ctx.lineTo(px + pw - 2, ry); ctx.stroke();
+        }
+      }
+
+      // Barn — larger, placed in field gap area
+      const barnW = 28 * m.baseScale, barnH = 20 * m.baseScale;
+      const barnX = farmL + farmW * 0.32;
+      const barnY = farmTop + farmH * 0.35;
+      this._drawTopDownBarn(ctx, barnX, barnY, barnW, barnH, t);
+
+      // Pond — in its own space at bottom-right
+      const pondCx = farmL + farmW * 0.78;
+      const pondCy = farmTop + farmH * 0.82;
+      const pondRx = 12 * m.baseScale, pondRy = 8 * m.baseScale;
+      ctx.fillStyle = t.pondEdge;
+      ctx.beginPath(); ctx.ellipse(pondCx, pondCy, pondRx + 2, pondRy + 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = t.pond;
+      ctx.beginPath(); ctx.ellipse(pondCx, pondCy, pondRx, pondRy, 0, 0, Math.PI * 2); ctx.fill();
+
+      // Fenced enclosure — bottom-left of farm
+      const fX = farmL + farmW * 0.05, fY = farmTop + farmH * 0.78;
+      const fW = 20 * m.baseScale, fH = 14 * m.baseScale;
+      ctx.fillStyle = t.yardGreen;
+      ctx.fillRect(fX, fY, fW, fH);
+      ctx.strokeStyle = t.fence; ctx.lineWidth = 1.2;
+      ctx.strokeRect(fX, fY, fW, fH);
+      for (let fp = fX; fp <= fX + fW; fp += fW / 4) {
+        ctx.fillStyle = t.fence;
+        ctx.fillRect(fp - 0.8, fY - 2, 1.6, fH + 4);
+      }
+
+      // ── Isometric houses (left side, below fork only) ──
+      const margin = 4;
+      const availW = roadL - margin * 2;
+      const urbanTop = rd.forkY + 8;
+      const urbanBot = h - 10;
+      const urbanH = urbanBot - urbanTop;
+      const sizes = [[12, 14], [16, 18], [14, 16], [20, 22], [18, 20], [24, 26]];
+      const hScale = Math.min(1, availW / 32);
+      const nHouses = Math.max(5, Math.round(20 * hScale));
+      const placed = [];
+
+      for (let attempt = 0; attempt < nHouses * 6 && placed.length < nHouses; attempt++) {
+        const si = Math.floor(rng() * sizes.length);
+        const [bw, bh] = sizes[si];
+        const sw = bw * hScale, sh = bh * hScale;
+        const sideExtra = sw * 0.35;
+        const hx = margin + rng() * Math.max(0, availW - sw - sideExtra);
+        const hy = urbanTop + rng() * Math.max(0, urbanH - sh - 10);
+        if (hx + sw + sideExtra > roadL - 4) continue;
+        const pad = 6;
+        let ok = true;
+        for (const p of placed) {
+          if (hx < p.x + p.tw + pad && hx + sw + sideExtra + pad > p.x &&
+              hy - sh * 0.35 < p.y + p.h + pad && hy + sh + pad > p.y - p.h * 0.35) {
+            ok = false; break;
+          }
+        }
+        if (!ok) continue;
+        placed.push({ x: hx, y: hy, w: sw, h: sh, tw: sw + sideExtra, ci: Math.floor(rng() * 4), chim: rng() < 0.3 });
+      }
+
+      // ── Pedestrian paths (drawn before houses) ─────────────
+      const path1Y = urbanTop + urbanH * 0.33;
+      const path2Y = urbanTop + urbanH * 0.66;
+      const pathVX = margin + availW * 0.48;
+      ctx.fillStyle = t.sidewalk || '#cec4a8';
+      ctx.fillRect(margin, path1Y - 1.5, availW, 3);
+      ctx.fillRect(margin, path2Y - 1.5, availW, 3);
+      ctx.fillRect(pathVX - 1.5, urbanTop, 3, urbanH);
+      // Slightly darker path edges
+      ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(margin, path1Y - 1.5, availW, 3);
+      ctx.strokeRect(margin, path2Y - 1.5, availW, 3);
+      ctx.strokeRect(pathVX - 1.5, urbanTop, 3, urbanH);
+
+      placed.sort((a, b) => a.y - b.y);
+      for (const p of placed) {
+        if (rng() > 0.5) {
+          const yp = 3 * hScale;
+          ctx.fillStyle = rng() > 0.5 ? t.yardGreen : t.yardBrown;
+          ctx.fillRect(p.x - yp, p.y - yp, p.tw + yp * 2, p.h + yp * 2);
+        }
+        this._drawTopDownHouse(ctx, p.x, p.y, p.w, p.h, t, p.ci, p.chim);
+      }
+
+      // ── Fountains (decorative details at path intersections) ──
+      const fountainSpots = [
+        { x: pathVX, y: path1Y },
+        { x: pathVX, y: path2Y },
+        { x: margin + availW * 0.2, y: path1Y + (path2Y - path1Y) * 0.5 },
+      ];
+      for (const fs of fountainSpots) {
+        if (rng() > 0.6) continue;
+        const fr = Math.max(2.5, 4 * hScale);
+        ctx.fillStyle = t.fountainRing || '#9e8c68';
+        ctx.beginPath(); ctx.arc(fs.x, fs.y, fr + 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = t.fountainWater || '#78c3dc';
+        ctx.beginPath(); ctx.arc(fs.x, fs.y, fr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.arc(fs.x - fr * 0.2, fs.y - fr * 0.2, fr * 0.32, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Sidewalk trees among houses
+      for (let i = 0; i < Math.round(5 * hScale); i++) {
+        const tx = margin + rng() * Math.max(4, roadL - margin - 6);
+        const ty = urbanTop + rng() * urbanH;
+        const tr = 2 + rng() * 2.5;
+        ctx.fillStyle = t.houseShadow;
+        ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = rng() > 0.4 ? t.forest : t.forestAlt;
+        ctx.beginPath(); ctx.arc(tx, ty, tr, 0, Math.PI * 2); ctx.fill();
+      }
+    }
     _road(rd, h) {
       const ctx = this.ctx, hw = rd.halfW();
       const g = this._roadGeometry(rd, h), splitT = g.splitT;
@@ -2308,6 +2728,6 @@
 
   global.TrafficCore = {
     WBASE, MAX_ST, CAR_L, CAR_W, IDM_S0, IDM_T, PATH_SP, V0_DEF, PROJ_MARGIN, INTERSECT_WIDEN, MAIN_LANE_SCALE, BRANCH_LANE_SCALE, BRANCH_WIDTH_TRANSITION_T, SPLIT_WALL_GAP, COMMIT_DIST, BATCH_APPROACH_DIST, EXIT_CLEARANCE, PROGRESS_EPS,
-    mkRng, V, idm, toLocal, coneCheck, rearConeCheck, satOverlap, carCorners, satOverlapMargin, pathQuery, Road, Car, Sim, Ren, createScenarioSim
+    RENDER_THEMES, mkRng, V, idm, toLocal, coneCheck, rearConeCheck, satOverlap, carCorners, satOverlapMargin, pathQuery, Road, Car, Sim, Ren, createScenarioSim
   };
 })(window);
