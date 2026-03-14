@@ -2545,15 +2545,15 @@
       const path2Y = urbanTop + urbanH * 0.66;
       const pathVX = margin + availW * 0.48;
       ctx.fillStyle = t.sidewalk || '#cec4a8';
-      ctx.fillRect(margin, path1Y - 1.5, availW, 3);
-      ctx.fillRect(margin, path2Y - 1.5, availW, 3);
-      ctx.fillRect(pathVX - 1.5, urbanTop, 3, urbanH);
+      ctx.fillRect(margin, path1Y - 2.5, availW, 5);
+      ctx.fillRect(margin, path2Y - 2.5, availW, 5);
+      ctx.fillRect(pathVX - 2, urbanTop, 4, urbanH);
       // Slightly darker path edges
-      ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
       ctx.lineWidth = 0.5;
-      ctx.strokeRect(margin, path1Y - 1.5, availW, 3);
-      ctx.strokeRect(margin, path2Y - 1.5, availW, 3);
-      ctx.strokeRect(pathVX - 1.5, urbanTop, 3, urbanH);
+      ctx.strokeRect(margin, path1Y - 2.5, availW, 5);
+      ctx.strokeRect(margin, path2Y - 2.5, availW, 5);
+      ctx.strokeRect(pathVX - 2, urbanTop, 4, urbanH);
 
       placed.sort((a, b) => a.y - b.y);
       for (const p of placed) {
