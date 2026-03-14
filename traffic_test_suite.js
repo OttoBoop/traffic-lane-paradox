@@ -3139,6 +3139,298 @@
         return sim.testMetrics.overlapCount === 0 && inst.state.wallEscapes === 0;
       },
     },
+    // ── BA: Bug 1 — Merging cars stuck mid-lane-change must enter maneuver ──
+    {
+      id: "BA",
+      section: "mixed",
+      family: "guard_green",
+      name: "Mid-merge stuck car enters maneuver",
+      proof:
+        "3L/80, 50/50. Bug: after MOBIL merge (line 1846), pathKey points to target " +
+        "lane but physical position is still in old lane. Progress measured along " +
+        "target-lane path is erratic (car is far from path), causing spurious " +
+        "_progressDelta >= PROGRESS_EPS that resets noProgressTicks. Car stays " +
+        "merging+stopped indefinitely without entering maneuver. " +
+        "PASS: no car stays merging+slow (speed<0.2) for >10 observe frames (~200 ticks) " +
+        "without entering maneuver. FAIL today: stuck-merge cars never recover.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L/80 merge-stuck", {
+              lanes: 3,
+              cars: 80,
+              split: 50,
+              seed: 500,
+              w: PHONE.w,
+              h: PHONE.h,
+              maxTicks: 6000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: { maxMergeStallFrames: 0, anyMergeStall: false },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        for (const c of sim.cars) {
+          if (c.merging && !c.maneuvering && !c.done && !c.fixed && Math.abs(c.speed) < 0.2) {
+            c._mergeStallFrames = (c._mergeStallFrames || 0) + 1;
+          } else {
+            c._mergeStallFrames = 0;
+          }
+          if ((c._mergeStallFrames || 0) > inst.state.maxMergeStallFrames) {
+            inst.state.maxMergeStallFrames = c._mergeStallFrames;
+          }
+          if ((c._mergeStallFrames || 0) > 10) {
+            inst.state.anyMergeStall = true;
+          }
+        }
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Max merge-stall frames": String(inst.state.maxMergeStallFrames),
+          "Merge stall detected": String(inst.state.anyMergeStall),
+          "Maneuver enters": String(sim.testMetrics.maneuverEnterCount || 0),
+          "Cars done": countDone(sim) + "/80",
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        // PASS: no car was stuck merging for >10 observe frames without entering maneuver
+        return !inst.state.anyMergeStall;
+      },
+    },
+    // ── BB: Bug 2 — Maneuvering cars must not violate car boundaries (overlaps) ──
+    {
+      id: "BB",
+      section: "collision",
+      family: "guard_green",
+      name: "Maneuver wobble respects car boundaries (3L/80 stress)",
+      proof:
+        "3L/80 cars, 50/50, 6000 ticks. Dense traffic triggers maneuver wobble near " +
+        "road edges. Bug: post-tick separation pass (lines 1114-1118) pushes lower-priority " +
+        "car along center-to-center vector with no road boundary check. Single-pass " +
+        "separation can create new overlaps with third cars. During maneuver, reduced " +
+        "MOBIL_MANEUVER_GAP=11px allows close crowding. " +
+        "PASS: 0 overlaps AND 0 wall escapes. FAIL today: dense maneuver zones " +
+        "produce persistent overlaps and/or wall escapes.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L/80 maneuver-boundary", {
+              lanes: 3,
+              cars: 80,
+              split: 50,
+              seed: 501,
+              w: PHONE.w,
+              h: PHONE.h,
+              maxTicks: 6000,
+              stepsPerFrame: 20,
+            }),
+          ],
+          state: { peakOverlaps: 0, peakWallEscapes: 0 },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.peakOverlaps = Math.max(inst.state.peakOverlaps, sim.testMetrics.overlapCount);
+        inst.state.peakWallEscapes = Math.max(inst.state.peakWallEscapes, sim.testMetrics.wallEscapeCount);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Overlaps: String(sim.testMetrics.overlapCount),
+          "Wall escapes": String(sim.testMetrics.wallEscapeCount),
+          "Maneuver enters": String(sim.testMetrics.maneuverEnterCount || 0),
+          "Cars done": countDone(sim) + "/80",
+          Time: timeStr(inst.cases[0]),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return sim.testMetrics.overlapCount === 0 && sim.testMetrics.wallEscapeCount === 0;
+      },
+    },
+    // ── BC: Bug 3 — Branch-stuck cars must enter maneuver ──
+    {
+      id: "BC",
+      section: "mixed",
+      family: "guard_green",
+      name: "Branch-stuck car enters maneuver",
+      proof:
+        "2L custom. Bug: maneuver-entry loop (line 689) only iterates 'mains' " +
+        "(seg==='main'). Branch cars are excluded. Worse, line 664 resets " +
+        "c.maneuvering=false and c.noProgressTicks=0 for all branch cars every tick, " +
+        "making maneuver entry impossible. " +
+        "Test: cars 0,1 go left. Fixed blockers on left branch. Cars enter branch " +
+        "and get stuck. Must enter maneuver to recover. " +
+        "PASS: at least one branch car enters maneuver. FAIL today: branch cars " +
+        "can never enter or stay in maneuver mode.",
+      build() {
+        return {
+          cases: [
+            customCase("2L branch-stuck", {
+              lanes: 2,
+              seed: 403,
+              maxTicks: 1200,
+              stepsPerFrame: 5,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 340 },
+                { id: 1, lane: 0, target: "left", y: 370 },
+                { id: 2, pathKey: "0-left", lane: 0, target: "left", pathT: 0.75, seg: "left", fixed: true, color: "#666" },
+                { id: 3, pathKey: "0-left", lane: 0, target: "left", pathT: 0.85, seg: "left", fixed: true, color: "#555" },
+              ],
+            }),
+          ],
+          state: { branchManeuverEvents: 0, maxBranchStopTicks: 0 },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.branchManeuverEvents = sim.testEvents.filter(
+          (e) => e.type === "maneuver_enter" && (e.carId === 0 || e.carId === 1)
+        ).length;
+        inst.state.maxBranchStopTicks = sim.testMetrics.maxBlockedBranchStopTicks;
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const car0 = sim.cars.find((c) => c.id === 0);
+        const car1 = sim.cars.find((c) => c.id === 1);
+        return {
+          "Car 0 seg": car0.seg,
+          "Car 1 seg": car1.seg,
+          "Car 0 branchStopTicks": String(car0._branchStopTicks || 0),
+          "Branch maneuver events": String(inst.state.branchManeuverEvents),
+          "Max branch stop ticks": String(inst.state.maxBranchStopTicks),
+          Ticks: String(Math.round(sim.ticks)),
+        };
+      },
+      verdict(inst) {
+        return inst.state.branchManeuverEvents > 0;
+      },
+    },
+    // ── BD: 2L overlap stress — matches user's 2-lane scenario ──
+    {
+      id: "BD",
+      section: "mixed",
+      family: "guard_green",
+      name: "2L/40-car dense traffic must not overlap (PHONE canvas)",
+      proof:
+        "2L/40 cars on PHONE canvas (110×700). Reproduces user-reported phasing bug " +
+        "in 2-lane setups. High density + narrow road triggers maneuver + heading " +
+        "corrections that previously bypassed SAT checks. " +
+        "Fix: _commitPose overlap guard on all post-move passes. " +
+        "PASS if 0 overlaps and 0 wall escapes.",
+      build() {
+        return {
+          cases: [
+            standardCase("2L/40 overlap stress", {
+              lanes: 2,
+              cars: 40,
+              split: 50,
+              seed: 42,
+              w: PHONE.w,
+              h: PHONE.h,
+              maxTicks: 1000,
+              stepsPerFrame: 10,
+            }),
+          ],
+          state: { maxOverlaps: 0, wallEscapes: 0 },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.wallEscapes = sim.testMetrics.wallEscapeCount;
+        inst.state.maxOverlaps = Math.max(inst.state.maxOverlaps, sim.testMetrics.overlapCount);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          Ticks: String(Math.round(sim.ticks)),
+          "Cars done": countDone(sim) + "/" + sim.cars.filter((c) => !c.fixed).length,
+          "Wall escapes": String(inst.state.wallEscapes),
+          "Overlaps": String(sim.testMetrics.overlapCount),
+          "Maneuver enters": String(sim.testMetrics.maneuverEnterCount || 0),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return sim.testMetrics.overlapCount === 0 && inst.state.wallEscapes === 0;
+      },
+    },
+
+    // ─── Card BE: Diagnostic overlap + near-miss tracker ───────────────
+    {
+      id: "BE",
+      section: "mixed",
+      family: "diagnostic",
+      name: "3L/40-car maneuver overlap diagnostic (PHONE)",
+      proof:
+        "3L/40 cars on PHONE canvas (110×700). Runs diagnostic overlap check " +
+        "at end of each tick to capture near-miss pairs (within CAR_L*1.5 center distance) " +
+        "and margin-based overlaps (PROJ_MARGIN=2px). Multiple seeds tested. " +
+        "Diagnostic family — observe overlap events, do not gate on pass/fail.",
+      build() {
+        // Sweep 3 seeds to find overlap conditions
+        const seeds = [42, 777, 123];
+        return {
+          cases: seeds.map((seed) =>
+            standardCase(`3L/40 seed=${seed}`, {
+              lanes: 3,
+              cars: 40,
+              split: 50,
+              seed,
+              w: PHONE.w,
+              h: PHONE.h,
+              maxTicks: 600,
+              stepsPerFrame: 1, // match browser default
+            })
+          ),
+          state: {
+            totalNearMisses: 0,
+            totalOverlapEvents: 0,
+            totalZeroMarginOverlaps: 0,
+          },
+        };
+      },
+      observe(inst) {
+        for (const c of inst.cases) {
+          const m = c.sim.testMetrics;
+          // F1-T1: nearMissLog must exist and be an array
+          if (Array.isArray(m.nearMissLog)) {
+            inst.state.totalNearMisses += m.nearMissLog.length;
+          }
+          // F1-T2: overlapEventLog must exist and be an array
+          if (Array.isArray(m.overlapEventLog)) {
+            inst.state.totalOverlapEvents += m.overlapEventLog.length;
+            inst.state.totalZeroMarginOverlaps += m.overlapEventLog.filter(
+              (e) => e.zeroMarginOverlap
+            ).length;
+          }
+        }
+      },
+      metrics(inst) {
+        const allMetrics = inst.cases.map((c) => c.sim.testMetrics);
+        return {
+          "Seeds run": String(inst.cases.length),
+          "Total near-misses": String(inst.state.totalNearMisses),
+          "Total margin overlaps": String(inst.state.totalOverlapEvents),
+          "Zero-margin overlaps": String(inst.state.totalZeroMarginOverlaps),
+          "Existing overlapCount": allMetrics
+            .map((m) => m.overlapCount)
+            .join("/"),
+          "Maneuver enters": allMetrics
+            .map((m) => m.maneuverEnterCount || 0)
+            .join("/"),
+        };
+      },
+      verdict(inst) {
+        // RED test: nearMissLog must exist AND have entries.
+        // This FAILS until _diagnosticOverlapCheck is implemented.
+        return inst.state.totalNearMisses > 0;
+      },
+    },
   ];
 
   const FAMILY_META = {
