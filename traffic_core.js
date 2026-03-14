@@ -579,6 +579,7 @@
         sleepTicksTotal: 0,
         awakeTicksTotal: 0,
         nearMissLog: [],
+        overlapEventLog: [],
         marginOverlapCount: 0
       };
     }
@@ -611,17 +612,37 @@
           const distSq = dx * dx + dy * dy;
           if (distSq > broadSq) continue;
           const dist = Math.sqrt(distSq);
+          // Near-miss logging
           if (dist < nearDist) {
-            const entry = {
-              tick, aId: a.id, bId: b.id,
-              ax: a.x, ay: a.y, ath: a.th,
-              bx: b.x, by: b.y, bth: b.th,
-              gap: dist,
-              aManeuver: !!(a.maneuvering),
-              bManeuver: !!(b.maneuvering),
-            };
             if (this.testMetrics.nearMissLog.length < 200) {
-              this.testMetrics.nearMissLog.push(entry);
+              this.testMetrics.nearMissLog.push({
+                tick, aId: a.id, bId: b.id,
+                ax: a.x, ay: a.y, ath: a.th,
+                bx: b.x, by: b.y, bth: b.th,
+                gap: dist,
+                aManeuver: !!(a.maneuvering),
+                bManeuver: !!(b.maneuvering),
+              });
+            }
+          }
+          // Margin-based overlap detection (PROJ_MARGIN = 2px)
+          const marginOverlap = satOverlapMargin(a.x, a.y, a.th, b.x, b.y, b.th, PROJ_MARGIN);
+          if (marginOverlap) {
+            const zeroMarginOverlap = satOverlap(a, b);
+            this.testMetrics.marginOverlapCount++;
+            if (this.testMetrics.overlapEventLog.length < 200) {
+              this.testMetrics.overlapEventLog.push({
+                tick, aId: a.id, bId: b.id,
+                ax: a.x, ay: a.y, ath: a.th,
+                bx: b.x, by: b.y, bth: b.th,
+                gap: dist,
+                margin: PROJ_MARGIN,
+                zeroMarginOverlap,
+                aManeuver: !!(a.maneuvering),
+                bManeuver: !!(b.maneuvering),
+                aSeg: a.seg, bSeg: b.seg,
+                aSpeed: a.speed, bSpeed: b.speed,
+              });
             }
           }
         }
