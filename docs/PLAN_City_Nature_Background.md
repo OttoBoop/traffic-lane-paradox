@@ -1,14 +1,15 @@
 # City & Nature Background Theme — Implementation Plan
 
 **Generated:** 2026-03-14
-**Status:** Draft
+**Updated:** 2026-03-15 (Session 2 — Enhancement Pass)
+**Status:** In Progress
 **Discovery:** [DISCOVERY_City_Nature_Background.md](DISCOVERY_City_Nature_Background.md)
 
 ---
 
 ## 1. Executive Summary
 
-Add a third visual theme ("Cidade & Natureza") to the Traffic Lane Paradox simulator: urban houses on the left, farmland grading into dense forest on the right, with tree clusters filling the V-area between fork branches. Build a theme selector dropdown so users can switch between Classic, Rio Satellite, and City & Nature mid-simulation. Introduce an offscreen buffer to pre-render the static background once per load/resize, avoiding per-frame overhead.
+Add a third visual theme ("Cidade & Natureza") to the Traffic Lane Paradox simulator — urban neighborhood on the left, farmland and dense forest on the right, with a packed V-intersection forest. Session 1 (base theme, offscreen buffer, theme selector) is **complete**. Session 2 adds barn animals (cows, chickens, pigs — top-down with shadows), a fenced pen, chicken coop, farm pond, urban props (streetlights, benches, mailboxes, fences), a solid-packed V-forest aligned to the dark ground zone, and road-overlap prevention via zone clamping + per-element guard.
 
 ---
 
@@ -16,7 +17,7 @@ Add a third visual theme ("Cidade & Natureza") to the Traffic Lane Paradox simul
 
 ### 2.1 Problem Statement
 
-The simulator has two visual themes (classic dark, Rio satellite) but no user-switchable selection and no third option. Leo Bloise proposed a "city on one side, nature on the other" look that better communicates the road-as-focus principle. Currently themes are hardcoded per page with no runtime switching.
+The Session 1 City & Nature theme is live and functional, but the scene lacks life and precision: the nature side has no animals or farm structures, the urban side has no streetscape props, the V-intersection forest is not as dense as desired, and element placement does not formally guard against road overlap.
 
 ### 2.2 Target Users
 
@@ -24,26 +25,38 @@ Public simulator page visitors — anyone exploring the traffic lane paradox dem
 
 ### 2.3 Success Criteria
 
-- [ ] Leo approves the visual look in browser
-- [ ] Theme switching works mid-simulation (all 3 themes) without resetting the sim
-- [ ] Scene elements never overlap the road surface
-- [ ] Offscreen buffer correctly invalidates on resize and theme switch
-- [ ] Houses scale proportionally on narrow (1-lane mobile) canvases
+**Session 1 (complete):**
+- [x] Theme selector visible in `.ctrls` with 3 options
+- [x] City & Nature background renders with houses, trees, ground zones
+- [x] Offscreen buffer works; theme switching mid-sim works
+- [x] Pedestrian paths and fountain props present
+
+**Session 2 (in progress):**
+- [ ] Barn animals (cows, chickens, pigs) visible top-down with shadows on farm side
+- [ ] Fenced pen near barn; 1–2 loose animals outside
+- [ ] Chicken coop structure near flock
+- [ ] Farm pond (watering hole) on farm side
+- [ ] Barn visually refreshed (hay bale dot, door mark)
+- [ ] Urban props: road-edge + interior streetlights, benches, mailboxes, property-line fences
+- [ ] V-intersection packed solid with trees, aligned to dark green ground zone
+- [ ] Zero elements drawn inside road polygon (zone clamping + per-element guard)
+- [ ] Human sign-off on visual quality
 
 ### 2.4 Explicitly Out of Scope
 
-- Animated background elements (swaying trees, smoke, water ripples)
-- Additional themes beyond the initial 3 (desert, snow, night — tracked in IDEAS)
-- Isometric or 3D perspective — strictly top-down
-- Road color/texture changes — road rendering stays identical to classic
-- Any changes to `Road`, `Sim`, collision, wall, or legality behavior
+- Animated elements (swaying trees, smoke, water ripples) — Future Plans
+- Additional themes (desert, snow, night) — Future Plans
+- Parked cars — not selected in discovery
+- Changes to `Road`, `Sim`, collision, wall, or legality behavior
+- Isometric or 3D perspective
 
 ### 2.5 Evidence of Readiness
 
-- [ ] Theme selector dropdown visible in `.ctrls` area with 3 options
-- [ ] `_sceneCityNature()` renders houses, trees, farms, ground zones on offscreen buffer
-- [ ] Switching themes mid-sim re-renders background without sim reset
-- [ ] Reference screenshots at 1L, 2L, 3L show correct rendering
+- [ ] Playwright screenshot shows cows, chickens, pigs with recognizable top-down shapes
+- [ ] Playwright screenshot shows fenced pen + loose animal + coop + pond
+- [ ] Playwright screenshot shows urban props (lampposts, benches, fences, mailboxes)
+- [ ] Playwright screenshot shows V-area solid green canopy
+- [ ] Automated assertion: zero element centers inside road bounding band
 - [ ] Human confirms visual quality in browser
 
 ---
@@ -53,69 +66,76 @@ Public simulator page visitors — anyone exploring the traffic lane paradox dem
 ### 3.1 System Overview
 
 ```
-traffic_v18.html
-  └── .ctrls area
-        └── Theme <select> (new)  ──► updates all Ren instances' theme
-
 traffic_core.js
-  └── RENDER_THEMES
-        ├── classic          (existing, lines 46-59)
-        ├── rioSatellite     (existing, lines 60-94)
-        └── cityNature       (NEW — palette + scene:'city_nature')
   └── Ren class
-        ├── draw()           (modified — dispatch to scene by theme.scene)
-        ├── _scene()         (existing — Rio satellite)
-        ├── _sceneCityNature()  (NEW — houses, trees, farms, ground)
-        ├── _offscreenBuf    (NEW — cached canvas for static background)
-        ├── _treeCluster()   (REUSE — organic grouped canopies)
-        ├── _roundRectPath() (REUSE — rounded rectangles)
-        └── _sceneMetrics()  (REUSE — road-derived bounds)
+        ├── _sceneCityNature()     [EXISTS — Session 1]
+        │     ├── _drawHouse()       [EXISTS]
+        │     ├── _treeCluster()     [EXISTS — reused]
+        │     ├── _drawFarm()        [EXISTS]
+        │     ├── _drawFountain()    [EXISTS]
+        │     ├── _drawPedPaths()    [EXISTS]
+        │     │
+        │     ├── _drawAnimal()      [NEW — Session 2]
+        │     ├── _drawAnimalPen()   [NEW — Session 2]
+        │     ├── _drawCoop()        [NEW — Session 2]
+        │     ├── _drawPond()        [NEW — Session 2]
+        │     ├── _drawBarnRefresh() [NEW — Session 2, modifies barn drawing]
+        │     ├── _drawUrbanProps()  [NEW — Session 2]
+        │     └── _safeZones()       [NEW — Session 2, road overlap guard]
+        └── _offscreenBuf          [EXISTS — Session 1]
 ```
 
 ### 3.2 Data Flow
 
 ```
-Page load / Resize / Theme switch:
-  1. Ren._offscreenBuf invalidated (set to null)
-  2. On next draw(), offscreen canvas created at current size
-  3. Ground zones painted (gray left, green right)
-  4. Farm details drawn (crop rows, fences on right side)
-  5. Houses placed randomly (left side, avoiding road polygon)
-  6. Tree clusters placed (right side + V-area, using _treeCluster())
-  7. Buffer stored as this._offscreenBuf
-
-Each animation frame:
-  1. ctx.drawImage(this._offscreenBuf, 0, 0)  ← O(1) stamp
-  2. Road, stop line, cars drawn on top (unchanged)
+Scene render (on buffer build):
+  1. _safeZones(rd, w, h) → leftBand [0, roadLeft-margin], rightBand [roadRight+margin, w]
+  2. Ground zones painted (existing)
+  3. V-area tree clusters — packed solid, bounded to dark green ground zone (ENHANCED)
+  4. Farm right side:
+       a. Existing crop rows, fences (existing)
+       b. _drawPond() — irregular blue shape
+       c. Refreshed barn (_drawBarnRefresh)
+       d. _drawAnimalPen() — fenced enclosure with cows + pigs inside
+       e. _drawCoop() — small rect near chicken flock
+       f. Chicken flock scatter near coop
+       g. 1–2 loose animals outside pen
+  5. Urban left side:
+       a. Existing houses + yards (existing)
+       b. _drawUrbanProps() — lampposts along road edge + between houses
+       c. Benches near some houses
+       d. Mailboxes + property fence segments between houses
+  6. Buffer stored
+Each frame: ctx.drawImage(buffer, 0, 0) [existing — unchanged]
 ```
 
 ### 3.3 Technology Decisions
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
-| Scene rendering | Canvas 2D API | Existing stack, no dependencies |
-| Offscreen buffer | `document.createElement('canvas')` | Standard API, avoids per-frame redraw |
-| Theme selector | HTML `<select>` in `.ctrls` | Consistent with existing control pattern |
-| Tree rendering | Existing `_treeCluster()` | Proven in Rio theme, reusable |
-| House rendering | New `_drawHouse()` helper | Simple rectangles + roof + optional yard |
+| Animal drawing | Canvas 2D primitives + shadows | Top-down view, minimal, matches existing asset style |
+| Road overlap guard | Zone clamping + per-element check | Belt-and-suspenders; zones fast, element guard catches edge cases |
+| V-area density | Increase `_treeCluster()` call count + reduce spacing | Reuse proven helper, no new primitives |
+| Urban props | New `_drawUrbanProps()` helper | Encapsulates lamppost, bench, mailbox, fence drawing |
+| Pond | Irregular polygon via arc/bezier | Simple organic shape achievable with Canvas 2D |
 
 ### 3.4 Integration Points
 
-- `RENDER_THEMES` object (lines 45-95 of `traffic_core.js`) — add `cityNature` entry
-- `Ren.draw()` (line 2022 of `traffic_core.js`) — extend scene dispatch beyond `rio_satellite`
-- `traffic_v18.html` line 463 — change hardcoded `{ theme: 'rioSatellite' }` to use selector value
-- `.ctrls` div (lines 415-424 of `traffic_v18.html`) — add `<select>` element
+- `_sceneCityNature()` — main integration point; all new drawing calls added here
+- `_safeZones()` — called first, returns placement bands used by all downstream drawing
+- `_offscreenBuf` — unchanged; new drawing calls are added to the same buffer build
 
 ### 3.5 Output and Failure Contracts
 
 | Artifact or State | Owner | Proof Required | Blocked If |
 |-------------------|-------|----------------|------------|
-| `RENDER_THEMES.cityNature` config | `traffic_core.js` | Object exists with `scene: 'city_nature'` + all color keys | Missing color keys cause undefined fills |
-| `_sceneCityNature()` method | `Ren` class | Renders visible background on offscreen canvas | Method doesn't exist or throws |
-| Offscreen buffer | `Ren._offscreenBuf` | `drawImage()` succeeds; invalidates on resize/theme switch | Buffer stale after resize or theme change |
-| Theme selector UI | `traffic_v18.html` | `<select>` visible in `.ctrls`, changes all renderers | Hardcoded theme in HTML |
-| No road overlap | `_sceneCityNature()` | All element placements respect `rd.cx ± rd.halfW()` | Any house/tree drawn inside road polygon |
-| Human approval | Browser visual check | Leo or user confirms look | Visual doesn't match Leo's vision |
+| Animal drawings | `_drawAnimal()` | Screenshots show recognizable cow/chicken/pig top-down | Looks like abstract blobs, not animals |
+| Animal pen | `_drawAnimalPen()` | Fenced rect visible near barn; animals inside | Pen overlaps road |
+| Chicken coop | `_drawCoop()` | Small rect near flock, distinct roof color | Missing or invisible at canvas scale |
+| Farm pond | `_drawPond()` | Blue irregular shape on farm side | Overlaps road or looks wrong |
+| Urban props | `_drawUrbanProps()` | Lampposts, benches, fences visible on left side | Any prop drawn on road surface |
+| V-area density | Scene buffer | Screenshot shows near-solid canopy in V-zone | Trees sparse or mis-aligned with ground zone |
+| Road overlap | `_safeZones()` + per-element guard | Automated assertion passes | Any element center inside road band |
 
 ---
 
@@ -123,154 +143,217 @@ Each animation frame:
 
 ---
 
-### Feature 1: Theme Configuration
-
-**User Story:** As a developer, I want the City & Nature color palette registered in `RENDER_THEMES` so the renderer can reference it.
-
-**Acceptance Criteria:**
-- [ ] `RENDER_THEMES.cityNature` exists with `scene: 'city_nature'`
-- [ ] Contains all required color keys: ground colors (gray, green), house colors (4+ warm earthy tones), farm colors, forest colors, plus all road/stop/queue colors inherited from classic
+### Feature 1: Theme Configuration ✅ Complete
 
 **Tasks:**
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F1-T1 | Add `cityNature` entry to `RENDER_THEMES` with full color palette | None | No | S | ⬜ |
-
-**Tests Required:**
-
-| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
-|----------------|------|---------------|-----------|----------------|
-| Config object has all required keys | Unit (Node.js) | No | `RENDER_THEMES.cityNature.scene === 'city_nature'` + no undefined colors | Test card or inline assertion |
+| F1-T1 | Add `cityNature` entry to `RENDER_THEMES` | None | No | S | ✅ |
 
 ---
 
-### Feature 2: Theme Selector UI
-
-**User Story:** As a viewer of the simulation, I want to pick between Classic, Rio Satellite, and Cidade & Natureza from a dropdown so I can see the theme I prefer.
-
-**Acceptance Criteria:**
-- [ ] `<select>` element visible in `.ctrls` area with 3 options
-- [ ] Display names: "Clássico", "Rio Satélite", "Cidade & Natureza"
-- [ ] Changing selection updates all `Ren` instances' `this.theme` immediately
-- [ ] No simulation reset on theme change
-- [ ] Offscreen buffer invalidated on theme change
+### Feature 2: Theme Selector UI ✅ Complete
 
 **Tasks:**
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F2-T1 | Add `<select id="themeSelect">` to `.ctrls` in `traffic_v18.html` with 3 options | None | No | S | ⬜ |
-| F2-T2 | Wire `change` event: update all `Ren` instances' theme + invalidate buffer | F2-T1, F1-T1 | Yes — manual toggle test | S | ⬜ |
-
-**Tests Required:**
-
-| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
-|----------------|------|---------------|-----------|----------------|
-| Dropdown renders with 3 options | Manual browser check | Yes | Select visible in `.ctrls` | Browser screenshot |
-| Theme switch doesn't reset sim | Manual: toggle mid-sim | Yes | Cars continue moving, positions unchanged | Browser observation |
+| F2-T1 | Add `<select id="themeSelect">` to `.ctrls` in HTML | None | No | S | ✅ |
+| F2-T2 | Wire `change` event: update Ren theme + invalidate buffer | F2-T1, F1-T1 | Yes | S | ✅ |
 
 ---
 
-### Feature 3: City & Nature Scene Renderer
+### Feature 3: City & Nature Scene Renderer ✅ Complete (Session 1)
 
-**User Story:** As a viewer, I want to see an urban neighborhood on the left and farmland/forest on the right of the road, so the simulation feels like a real place.
-
-**Acceptance Criteria:**
-- [ ] Left side: gray ground with houses (top-down rectangles, colored roofs, warm earthy tones, mixed yards)
-- [ ] Right side: green ground with light farm details (crop rows/fences) below fork, trees above
-- [ ] V-area (between branches): dense forest via `_treeCluster()`
-- [ ] Elements have Leo's tileset-style shadows (slight shadow offset, mild 3D feel)
-- [ ] Medium density — suburban feel, not sparse or packed
-- [ ] Random placement each page load (no seeding)
-- [ ] No element overlaps the road surface
-- [ ] Houses scale proportionally on narrow canvases (1-lane mobile)
-
-**Technical Details:**
-- New method `Ren.prototype._sceneCityNature = function(rd, w, h, bufCtx) { ... }`
-- Uses `_sceneMetrics(rd, w, h)` for road-derived bounds (reuse existing helper)
-- Uses `_treeCluster()` for forest areas (reuse existing helper)
-- New internal helper `_drawHouse(ctx, x, y, w, h, roofColor, wallColor, hasYard)` for house rectangles
-- Element placement uses `rd.cx`, `rd.halfW()`, branch edge sampling to avoid road overlap
-- House size scaled by `Math.min(1, availableWidth / BASE_HOUSE_WIDTH)` for narrow canvases
+Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all implemented in Session 1.
 
 **Tasks:**
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F3-T1 | Implement `_sceneCityNature()`: ground zones (gray left, green right) | F1-T1 | No | S | ⬜ |
-| F3-T2 | Implement house rendering: `_drawHouse()` helper + random placement on left side | F3-T1 | No | M | ⬜ |
-| F3-T3 | Implement farm details (right side) + tree clusters (right + V-area) | F3-T2 | No | M | ⬜ |
-| F3-T4 | Add shadow/depth to houses and trees (Leo's tileset style) | F3-T3 | No | S | ⬜ |
-| F3-T5 | Implement narrow-canvas house scaling | F3-T2 | No | S | ⬜ |
-
-**Tests Required:**
-
-| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
-|----------------|------|---------------|-----------|----------------|
-| No element overlaps road | Automated: check placements vs `rd.cx ± rd.halfW()` | No | Zero placements inside road bounds | Test assertion |
-| Houses scale on narrow canvas | Manual: test at 1-lane | Yes | Houses visible but smaller | Browser screenshot at 1L |
-| Visual quality matches Leo's vision | Human visual gate | Yes — Leo confirms | Leo approves | Browser screenshot sent to Leo |
+| F3-T1 | `_sceneCityNature()`: ground zones | F1-T1 | No | S | ✅ |
+| F3-T2 | House rendering: `_drawHouse()` + placement | F3-T1 | No | M | ✅ |
+| F3-T3 | Farm details + tree clusters (right + V-area) | F3-T2 | No | M | ✅ |
+| F3-T4 | Shadow/depth on houses and trees | F3-T3 | No | S | ✅ |
+| F3-T5 | Narrow-canvas house scaling | F3-T2 | No | S | ✅ |
 
 ---
 
-### Feature 4: Offscreen Buffer
-
-**User Story:** As a viewer, I want the background to render efficiently so the simulation stays smooth even with many cars.
-
-**Acceptance Criteria:**
-- [ ] Static background drawn once to offscreen canvas, stamped per frame via `drawImage()`
-- [ ] Buffer invalidated and regenerated on: page load, window resize, theme switch, lane count change
-- [ ] `Ren.draw()` dispatches to correct scene method based on `this.theme.scene`
-
-**Technical Details:**
-- Add `this._offscreenBuf = null` to `Ren` constructor
-- In `draw()`, check if `this._offscreenBuf` is null or dimensions changed → regenerate
-- Regeneration: create hidden canvas at same size, call scene method with buffer's context
-- Stamp: `ctx.drawImage(this._offscreenBuf, 0, 0)` before road/cars
-- Invalidation: set `this._offscreenBuf = null` on theme change and resize
-- Extend `draw()` dispatch: `'rio_satellite'` → `_scene()`, `'city_nature'` → `_sceneCityNature()`, `'classic'` → no scene
+### Feature 4: Offscreen Buffer ✅ Complete
 
 **Tasks:**
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F4-T1 | Add offscreen buffer creation/invalidation to `Ren` class | F3-T3 | No | M | ⬜ |
-| F4-T2 | Modify `draw()` to stamp buffer + dispatch by `theme.scene` | F4-T1 | No | S | ⬜ |
-| F4-T3 | Wire buffer invalidation into theme switch handler and resize | F4-T2, F2-T2 | Yes — manual resize test | S | ⬜ |
-
-**Tests Required:**
-
-| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
-|----------------|------|---------------|-----------|----------------|
-| Buffer regenerates on resize | Manual: resize browser window | Yes | Background redraws correctly after resize | Browser observation |
-| Buffer regenerates on theme switch | Manual: toggle themes | Yes | Background changes immediately on selection | Browser observation |
-| Rio theme still works via buffer | Manual: select Rio, confirm scene renders | Yes | Rio scene identical to pre-change | Browser observation |
+| F4-T1 | Offscreen buffer creation/invalidation in `Ren` | F3-T3 | No | M | ✅ |
+| F4-T2 | Modify `draw()`: stamp buffer + dispatch by `theme.scene` | F4-T1 | No | S | ✅ |
+| F4-T3 | Buffer invalidation on theme switch + resize | F4-T2, F2-T2 | Yes | S | ✅ |
 
 ---
 
-### Feature 5: Visual Verification
-
-**User Story:** As a developer, I want reference screenshots to verify the theme renders correctly across lane counts.
-
-**Acceptance Criteria:**
-- [ ] Screenshots captured at 1L, 2L, 3L with City & Nature theme
-- [ ] Leo or user confirms visual quality in browser
-- [ ] All 3 themes render correctly after all changes
+### Feature 5: Visual Verification — Session 1 ✅ Complete
 
 **Tasks:**
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F5-T1 | Capture reference screenshots at 1L, 2L, 3L | F4-T3 | Yes | S | ⬜ |
-| F5-T2 | Human visual gate: Leo/user confirms in browser | F5-T1 | Yes — mandatory | S | ⬜ |
+| F5-T1 | Reference screenshots at 1L, 2L, 3L | MC-1 | Yes | S | ✅ |
+| F5-T2 | Human visual gate: Session 1 | F5-T1 | Yes | S | ✅ |
+
+---
+
+### Feature 6: Road Overlap Prevention
+
+**User Story:** As a developer, I want all scene elements to respect road boundaries so nothing is drawn on the road surface.
+
+**Acceptance Criteria:**
+- [ ] `_safeZones(rd, w, h)` returns `{ leftBand, rightBand }` derived from road geometry
+- [ ] All element placement functions receive and respect zone bands
+- [ ] Per-element guard rejects any element whose bounding rect intersects road band
+- [ ] Automated assertion confirms zero violations
+
+**Tasks:**
+
+| ID | Task | Dependencies | Live Test? | Effort | Status |
+|----|------|--------------|------------|--------|--------|
+| F6-T1 | Implement `_safeZones()` — compute leftBand + rightBand from `rd.cx`, `rd.halfW()` | None | No | S | ✅ |
+| F6-T2 | Refactor all element placement in `_sceneCityNature()` to use zone bands + per-element guard | F6-T1 | No | M | ⬜ |
+| F6-T3 | Add automated assertion test: place all elements, verify no center inside road band | F6-T2 | No | S | ⬜ |
 
 **Tests Required:**
 
 | What to Verify | Type | Human Needed? | Done When | Proof Artifact |
 |----------------|------|---------------|-----------|----------------|
-| Visual quality across lane counts | Screenshot comparison + human review | Yes | Screenshots look correct; Leo approves | Screenshot files + Leo's confirmation |
-| All 3 themes work | Manual: cycle through all themes | Yes | Classic, Rio, City & Nature all render | Browser observation |
+| `_safeZones()` returns correct bands | Unit | No | `leftBand.max === roadLeft - margin` for sample road widths | Test card assertion |
+| Zero elements overlap road | Automated assertion | No | Assert passes for 1L, 2L, 3L | Test card: `F6_overlap_check` |
+| Props respect zones post-refactor | Screenshot | Yes | No prop visible on gray road surface | Playwright screenshot |
+
+---
+
+### Feature 7: V-Area Tree Density Enhancement
+
+**User Story:** As a viewer, I want the V-shaped area between the two road branches to look like an impenetrable forest canopy from above.
+
+**Acceptance Criteria:**
+- [ ] V-area trees packed solid (virtually no gaps)
+- [ ] Dense forest zone spatially aligned with existing darker green ground color
+- [ ] Tree clusters use existing `_treeCluster()` — increased call count and reduced spacing
+
+**Tasks:**
+
+| ID | Task | Dependencies | Live Test? | Effort | Status |
+|----|------|--------------|------------|--------|--------|
+| F7-T1 | Recalculate V-area cluster positions: tighter grid, more rows, aligned to dark ground zone | None | No | S | ✅ |
+| F7-T2 | Increase cluster call count and reduce inter-cluster gaps until near-solid coverage | F7-T1 | No | S | ⬜ |
+
+**Tests Required:**
+
+| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
+|----------------|------|---------------|-----------|----------------|
+| V-area visually solid | Screenshot | Yes | Near-zero ground visible between canopies in V zone | Playwright screenshot |
+| Dark ground aligns with tree zone | Screenshot | Yes | Darker green ground and dense canopy are co-located | Playwright screenshot |
+
+---
+
+### Feature 8: Urban Side Props
+
+**User Story:** As a viewer, I want the urban left side to feel like a real neighborhood with streetlights, benches, mailboxes, and property fences.
+
+**Acceptance Criteria:**
+- [ ] Streetlights along road edge + scattered between houses
+- [ ] Benches near some houses (not every house)
+- [ ] Short property-line fence segments between some adjacent houses
+- [ ] Mailboxes near some house fronts
+- [ ] All props stay within `leftBand` (no road overlap)
+- [ ] Houses unchanged — props only
+
+**Tasks:**
+
+| ID | Task | Dependencies | Live Test? | Effort | Status |
+|----|------|--------------|------------|--------|--------|
+| F8-T1 | Implement `_drawLamppost(ctx, x, y, scale)` — pole + circular head top-down | F6-T1 | No | S | ⬜ |
+| F8-T2 | Place road-edge lampposts: evenly spaced along left road boundary | F8-T1 | No | S | ⬜ |
+| F8-T3 | Place interior lampposts: random positions between house clusters | F8-T1 | No | S | ⬜ |
+| F8-T4 | Implement bench + mailbox: small rect shapes, placed near some houses | F6-T1 | No | S | ⬜ |
+| F8-T5 | Implement property-line fences: 3–5 segment lines between adjacent house plots | F6-T1 | No | S | ⬜ |
+
+**Tests Required:**
+
+| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
+|----------------|------|---------------|-----------|----------------|
+| Props visible in screenshots | Screenshot | Yes | Lampposts, benches, fences, mailboxes recognizable | Playwright screenshot |
+| No props on road | Automated (F6-T3 covers this) | No | Overlap assertion passes | Test card assertion |
+| Props don't obscure houses | Screenshot | Yes | Houses still primary visual; props feel secondary | Playwright screenshot |
+
+---
+
+### Feature 9: Farm Animal System
+
+**User Story:** As a viewer, I want to see cows, chickens, and pigs on the farm side — recognizable top-down shapes inside a pen near the barn, with a coop, a pond, and a few loose animals outside.
+
+**Acceptance Criteria:**
+- [ ] Cows: oval body, visible horns (two small protrusions), black+white color patches, shadow beneath
+- [ ] Chickens: small flock (4–8), teardrop/oval body, tiny beak triangle
+- [ ] Pigs: pink oval, snout dot, shadow
+- [ ] Fenced pen rectangle drawn near barn; cows + pigs placed inside
+- [ ] 1–2 loose animals placed just outside pen
+- [ ] Chicken flock placed near coop (not inside pen)
+- [ ] Chicken coop: small rect with distinct roof color (e.g., dark red)
+- [ ] Farm pond: irregular blue polygon on farm side near animals
+- [ ] Barn refreshed: same shape + hay bale dot + door mark added
+- [ ] All farm elements within `rightBand` (no road overlap)
+
+**Tasks:**
+
+| ID | Task | Dependencies | Live Test? | Effort | Status |
+|----|------|--------------|------------|--------|--------|
+| F9-T1 | Implement `_drawCow(ctx, x, y, scale)` — oval + horn stubs + patches + shadow | F6-T1 | No | M | ⬜ |
+| F9-T2 | Implement `_drawChicken(ctx, x, y, scale)` — teardrop body + beak + shadow | F6-T1 | No | S | ⬜ |
+| F9-T3 | Implement `_drawPig(ctx, x, y, scale)` — pink oval + snout + shadow | F6-T1 | No | S | ⬜ |
+| F9-T4 | Implement `_drawAnimalPen(ctx, x, y, w, h)` — fenced rect (4 sides, simple line segments) | F6-T1 | No | S | ⬜ |
+| F9-T5 | Place pen near barn; populate with 1–3 cows + 2–4 pigs inside; 1–2 loose animals outside | F9-T1, F9-T3, F9-T4 | No | S | ⬜ |
+| F9-T6 | Implement `_drawCoop(ctx, x, y)` — small rect, dark red roof | F6-T1 | No | S | ⬜ |
+| F9-T7 | Place chicken flock (4–8) near coop | F9-T2, F9-T6 | No | S | ⬜ |
+| F9-T8 | Implement `_drawPond(ctx, x, y, rx, ry)` — irregular blue polygon | F6-T1 | No | S | ⬜ |
+| F9-T9 | Barn refresh: add hay bale dot + door mark to existing barn drawing | None | No | S | ✅ |
+
+**Tests Required:**
+
+| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
+|----------------|------|---------------|-----------|----------------|
+| Animals recognizable as species | Screenshot | Yes — human judges | Cow has horns, chicken is small, pig is pink — readable at canvas scale | Playwright screenshot |
+| Pen visible near barn | Screenshot | Yes | Fenced rect clearly adjacent to barn | Playwright screenshot |
+| Coop + flock visible | Screenshot | Yes | Small building + cluster of small birds nearby | Playwright screenshot |
+| Pond visible | Screenshot | Yes | Blue irregular shape on farm side | Playwright screenshot |
+| All farm elements in rightBand | Automated (F6-T3) | No | Overlap assertion passes | Test card assertion |
+
+---
+
+### Feature 10: Visual Verification — Session 2
+
+**User Story:** As a developer, I want Playwright screenshots and human sign-off confirming all Session 2 features look correct and nothing overlaps the road.
+
+**Acceptance Criteria:**
+- [ ] Playwright screenshots captured showing all new features
+- [ ] Automated road overlap assertion passes
+- [ ] Human explicitly approves before feature marked done
+
+**Tasks:**
+
+| ID | Task | Dependencies | Live Test? | Effort | Status |
+|----|------|--------------|------------|--------|--------|
+| F10-T1 | Playwright screenshots: cityNature at 1L, 2L, 3L showing all Session 2 content | MC-2 | Yes | S | ⬜ |
+| F10-T2 | Run automated road overlap assertion | F6-T3 | No | S | ⬜ |
+| F10-T3 | Human visual gate: confirm all Session 2 features in browser | F10-T1 | Yes — mandatory | S | ⬜ |
+
+**Tests Required:**
+
+| What to Verify | Type | Human Needed? | Done When | Proof Artifact |
+|----------------|------|---------------|-----------|----------------|
+| Full scene looks correct | Screenshot + human | Yes | All features visible and readable | Playwright screenshot files |
+| Road overlap | Automated assertion | No | Zero violations reported | Test card pass log |
+| Human sign-off | Manual browser review | Yes — mandatory gate | Human explicitly approves | Approval noted in session |
 
 ---
 
@@ -278,66 +361,72 @@ Each animation frame:
 
 ### 5.1 Testing Pyramid
 
-- **Unit Tests:** Minimal — verify `RENDER_THEMES.cityNature` config object has required keys
-- **Integration Tests:** Not applicable — this is a rendering feature
-- **Visual Tests:** Primary verification method — screenshots at 1L/2L/3L + human review
-- **Manual Tests:** Theme switching, resize, narrow canvas scaling
+- **Unit tests:** `_safeZones()` output bounds check; animal helper existence check
+- **Automated guards:** Overlap assertion (element centers vs road band); existing guard suite `--id S --id X --id AA`
+- **Visual tests (primary):** Playwright screenshots after each wave; human review at MC-2
+- **Manual:** Theme switching, resize, narrow canvas scaling
 
 ### 5.2 TDD Checklist (Per Task)
 
 ```
-For visual rendering tasks, TDD is adapted:
-1. [ ] Define what the output should look like (acceptance criteria)
-2. [ ] Write the rendering code
-3. [ ] Open in browser and verify visually
-4. [ ] Run guard tests (S, X, AA) to confirm no sim regression
-5. [ ] Capture screenshot for reference
-6. [ ] Human confirms visual quality
-```
+For visual rendering tasks:
+1. [ ] Define acceptance criteria (what it must look like)
+2. [ ] Implement drawing primitive
+3. [ ] Take Playwright screenshot immediately after
+4. [ ] Review screenshot before proceeding to next task
+5. [ ] Fix any issues found before moving on
 
-Note: Traditional RED/GREEN TDD applies to the config and wiring tasks (F1-T1, F2-T1, F2-T2, F4-T1, F4-T2). Scene rendering tasks (F3-*) are visual and verified by human review.
+For logic/config tasks:
+1. [ ] Write failing test card first
+2. [ ] Implement minimum code to pass
+3. [ ] Run guard tests to confirm no regression
+4. [ ] Commit
+```
 
 ### 5.3 Testing Commands
 
 ```bash
-# Run existing guard tests (confirm no sim regression)
+# Existing guard suite
 node run_traffic_suite.js --id S --id X --id AA
 
-# Open main simulator in browser
-# (navigate to traffic_v18.html, use theme dropdown)
+# Playwright screenshot (run from traffic-lane-paradox/ dir)
+npx playwright screenshot traffic_v18.html screenshot_session2.png
 
-# Capture screenshots (manual: browser dev tools or screenshot tool)
+# Overlap assertion test card (once F6-T3 is written)
+node run_traffic_suite.js --id F6_overlap_check
 ```
 
 ---
 
 ## 6. Dependency & Parallelism Analysis
 
-### 6.1 Task Dependency Graph
+### 6.1 Task Dependency Graph (Session 2)
 
 ```
-F1-T1 (palette) ──────────────────┐
-                                   ├──► F3-T1 (ground) ──► F3-T2 (houses) ──► F3-T3 (farms+trees)
-F2-T1 (dropdown HTML) ──┐         │                                           │
-                         ├──► F2-T2│(wire handler)                   F3-T4 (shadows) ◄──┘
-                         │         │                                    │
-                         │         │    F3-T5 (narrow scaling) ◄── F3-T2
-                         │         │
-                         │         └──► F4-T1 (buffer create) ──► F4-T2 (buffer stamp) ──► F4-T3 (buffer invalidation)
-                         │                                                                       │
-                         └───────────────────────────────────────────────────────────────────────►┘
-                                                                                                  │
-                                                                                    F5-T1 (screenshots) ──► F5-T2 (human gate)
+F6-T1 (safe zones) ──────────────────────────────────────┐
+                   ├──► F6-T2 (refactor placement)         │
+                   │     └──► F6-T3 (overlap assertion)    │
+                   ├──► F7-T1 ──► F7-T2 (V density)       │
+                   ├──► F8-T1 ──► F8-T2, F8-T3, F8-T4, F8-T5
+                   └──► F9-T1,T2,T3,T4 (animal primitives)│
+                         ├──► F9-T5 (pen+placement)        │
+                         ├──► F9-T6 ──► F9-T7 (coop+flock)│
+                         └──► F9-T8 (pond)                 │
+F9-T9 (barn refresh) ────────────────────────────────────────┘
+                                                           │
+                                          MC-2 ◄──────────┘
+                                            │
+                                     F10-T1, F10-T2, F10-T3
 ```
 
 ### 6.2 Parallelism Reasoning
 
 | Task Group | Tasks | Parallel? | Rationale |
 |------------|-------|-----------|-----------|
-| **Wave 1** | F1-T1, F2-T1 | Yes | Config object and HTML dropdown are independent files |
-| **Wave 2** | F3-T1→T2→T3→T4, F3-T5 | Mostly sequential | Scene layers build on each other; F3-T5 branches from F3-T2 |
-| **Wave 3** | F4-T1→T2→T3, F2-T2 | Sequential | Buffer needs scene; wiring needs buffer + dropdown |
-| **Wave 4** | F5-T1→T2 | Sequential | Screenshots then human review |
+| **Wave 1** | F6-T1, F7-T1, F9-T9 | Yes | All root tasks, independent files/functions |
+| **Wave 2** | F6-T2, F7-T2, F8-T1, F9-T1, F9-T2, F9-T3, F9-T4, F9-T8 | Yes | All depend only on F6-T1 outputs; drawing primitives are independent |
+| **Wave 3** | F6-T3, F8-T2, F8-T3, F8-T4, F8-T5, F9-T5, F9-T6, F9-T7 | Yes | Depend on Wave 2 outputs; all target different scene zones |
+| **Wave 4** | MC-2, then F10-T1, F10-T2, F10-T3 | Sequential | Verification after everything lands |
 
 ### 6.3 Task Dependency Table
 
@@ -345,78 +434,115 @@ F2-T1 (dropdown HTML) ──┐         │                                     
 
 | Task | Description | Depends On | Unblocks | Status |
 |------|-------------|------------|----------|--------|
-| F1-T1 | Add `cityNature` palette to `RENDER_THEMES` | None | F3-T1, F2-T2, F4-T1 | ⬜ |
-| F2-T1 | Add theme `<select>` to `.ctrls` in HTML | None | F2-T2 | ⬜ |
-| F2-T2 | Wire `change` event: update Ren theme + invalidate buffer | F2-T1, F1-T1 | F4-T3 | ⬜ |
-| F3-T1 | `_sceneCityNature()`: ground zones (gray left, green right) | F1-T1 | F3-T2 | ⬜ |
-| F3-T2 | House rendering: `_drawHouse()` + random placement | F3-T1 | F3-T3, F3-T5 | ⬜ |
-| F3-T3 | Farm details + tree clusters (right + V-area) | F3-T2 | F3-T4, F4-T1 | ⬜ |
-| F3-T4 | Shadow/depth on houses and trees (tileset style) | F3-T3 | MC-1 | ⬜ |
-| F3-T5 | Narrow-canvas house scaling | F3-T2 | MC-1 | ⬜ |
-| F4-T1 | Offscreen buffer creation/invalidation in `Ren` | F3-T3 | F4-T2 | ⬜ |
-| F4-T2 | Modify `draw()`: stamp buffer + dispatch by `theme.scene` | F4-T1 | F4-T3 | ⬜ |
-| F4-T3 | Wire buffer invalidation into theme switch + resize | F4-T2, F2-T2 | MC-1 | ⬜ |
-| MC-1 | ⊕ All rendering + buffer + UI complete; guards green | F3-T4, F3-T5, F4-T3 | F5-T1 | ⬜ |
-| F5-T1 | Capture reference screenshots at 1L, 2L, 3L | MC-1 | F5-T2 | ⬜ |
-| F5-T2 | Human visual gate: Leo/user confirms in browser | F5-T1 | — | ⬜ |
+| F1-T1 | Palette config | None | (done) | ✅ |
+| F2-T1 | Theme selector HTML | None | (done) | ✅ |
+| F2-T2 | Wire theme change event | F2-T1, F1-T1 | (done) | ✅ |
+| F3-T1 | Ground zones | F1-T1 | (done) | ✅ |
+| F3-T2 | House rendering | F3-T1 | (done) | ✅ |
+| F3-T3 | Farm + tree clusters | F3-T2 | (done) | ✅ |
+| F3-T4 | Shadows | F3-T3 | (done) | ✅ |
+| F3-T5 | Narrow canvas scaling | F3-T2 | (done) | ✅ |
+| F4-T1 | Offscreen buffer | F3-T3 | (done) | ✅ |
+| F4-T2 | Buffer stamp + dispatch | F4-T1 | (done) | ✅ |
+| F4-T3 | Buffer invalidation wiring | F4-T2, F2-T2 | (done) | ✅ |
+| MC-1 | ⊕ Session 1 complete | F3-T4, F4-T3 | (done) | ✅ |
+| F5-T1 | Session 1 screenshots | MC-1 | (done) | ✅ |
+| F5-T2 | Session 1 human gate | F5-T1 | (done) | ✅ |
+| **F6-T1** | `_safeZones()` helper | None | F6-T2, F7-T1, F8-T1, F9-T1–T4, F9-T8 | ✅ |
+| **F6-T2** | Refactor placement to use zones + guard | F6-T1 | F6-T3 | ⬜ |
+| **F6-T3** | Automated overlap assertion test card | F6-T2 | MC-2 | ⬜ |
+| **F7-T1** | V-area cluster grid recalc (align to dark ground) | None | F7-T2 | ✅ |
+| **F7-T2** | Increase cluster count / reduce gaps → solid | F7-T1 | MC-2 | ⬜ |
+| **F8-T1** | `_drawLamppost()` primitive | F6-T1 | F8-T2, F8-T3 | ⬜ |
+| **F8-T2** | Road-edge lamppost row | F8-T1 | MC-2 | ⬜ |
+| **F8-T3** | Interior lampposts between houses | F8-T1 | MC-2 | ⬜ |
+| **F8-T4** | Bench + mailbox shapes near houses | F6-T1 | MC-2 | ⬜ |
+| **F8-T5** | Property-line fence segments | F6-T1 | MC-2 | ⬜ |
+| **F9-T1** | `_drawCow()` — oval + horns + patches + shadow | F6-T1 | F9-T5 | ⬜ |
+| **F9-T2** | `_drawChicken()` — teardrop + beak + shadow | F6-T1 | F9-T7 | ⬜ |
+| **F9-T3** | `_drawPig()` — pink oval + snout + shadow | F6-T1 | F9-T5 | ⬜ |
+| **F9-T4** | `_drawAnimalPen()` — fenced rect | F6-T1 | F9-T5 | ⬜ |
+| **F9-T5** | Place pen + animals inside + loose outside | F9-T1, F9-T3, F9-T4 | MC-2 | ⬜ |
+| **F9-T6** | `_drawCoop()` — small rect, dark red roof | F6-T1 | F9-T7 | ⬜ |
+| **F9-T7** | Place chicken flock near coop | F9-T2, F9-T6 | MC-2 | ⬜ |
+| **F9-T8** | `_drawPond()` — irregular blue polygon | F6-T1 | MC-2 | ⬜ |
+| **F9-T9** | Barn refresh: hay bale dot + door mark | None | MC-2 | ✅ |
+| **MC-2** | ⊕ All Session 2 features landed; guards green | F6-T3, F7-T2, F8-T2–T5, F9-T5, F9-T7, F9-T8, F9-T9 | F10-T1, F10-T2 | ⬜ |
+| **F10-T1** | Playwright screenshots at 1L, 2L, 3L | MC-2 | F10-T3 | ⬜ |
+| **F10-T2** | Run overlap assertion | F6-T3 | F10-T3 | ⬜ |
+| **F10-T3** | Human visual gate — explicit approval | F10-T1, F10-T2 | — | ⬜ |
 
 ---
 
 ## 7. Implementation Phases
 
-### Phase 1: Config + UI Shell (Wave 1 — parallel)
+### Phase 1 — Session 1 ✅ Complete
 
-| Batch | Tasks | Parallel? | Rationale |
-|-------|-------|-----------|-----------|
-| A | F1-T1, F2-T1 | Yes | Different files, no shared state |
-
-- [ ] **F1-T1:** Add `cityNature` to `RENDER_THEMES` in `traffic_core.js` (after line 94). Include: `scene: 'city_nature'`, ground colors (`urbanGround: '#b8b4a8'`, `grassGround: '#7db356'`), house colors (4 warm earthy tones), farm colors, forest colors (`forest`/`forestAlt` from Rio or new values), plus all road/stop/queue colors (copy from classic).
-- [ ] **F2-T1:** Add `<select id="themeSelect">` to `.ctrls` in `traffic_v18.html`. Three `<option>` elements: "Clássico" (value `classic`), "Rio Satélite" (value `rioSatellite`), "Cidade & Natureza" (value `cityNature`). Default selected: `rioSatellite` (current behavior).
+All F1–F5 tasks done. Theme, selector, offscreen buffer, houses, trees, pedestrian paths, fountains all live.
 
 ---
 
-### Phase 2: Scene Rendering (Wave 2 — sequential)
+### Phase 2 — Root Tasks (Wave 1 — parallel)
 
 | Batch | Tasks | Parallel? | Rationale |
 |-------|-------|-----------|-----------|
-| B | F3-T1 → F3-T2 → F3-T3 → F3-T4 | Sequential | Each layer builds on the previous |
-| B' | F3-T5 | After F3-T2 | Branches from house rendering |
+| A | F6-T1, F7-T1, F9-T9 | Yes | Independent: safe zones helper, V-area geometry, barn details |
 
-- [ ] **F3-T1:** Implement `_sceneCityNature(rd, w, h, ctx)`. Draw ground zones: left of road center = gray (`urbanGround`), right = green (`grassGround`). Use `rd.cx` and `rd.halfW()` as road boundary. Above fork: split along branch edges.
-- [ ] **F3-T2:** Implement `_drawHouse(ctx, x, y, w, h, roofColor, wallColor, hasYard, yardColor)`. Draw: yard patch (if `hasYard`), wall rectangle, roof stripe at top. Add to `_sceneCityNature`: randomly place 15-25 houses on left side, avoiding road polygon. Houses use warm earthy palette (beige `#f2e6d0`, terracotta `#c4785a`, light brown `#d4a574`, cream `#f5eed8`). Mixed yards: ~50% chance per house.
-- [ ] **F3-T3:** Add farm details on right side below fork: subtle horizontal crop row lines (thin strokes, slightly darker green). Add tree clusters in V-area between branches using `_treeCluster()`. Add scattered trees on right side above farms.
-- [ ] **F3-T4:** Add tileset-style shadows: each house gets a 2px shadow offset (darker color, drawn first). Tree clusters get a subtle shadow ellipse beneath. Not full drop-shadow — just offset fill.
-- [ ] **F3-T5:** Scale house dimensions by `Math.min(1, (rd.cx - rd.halfW(0)) / 40)` — if available width left of road is less than 40px, shrink houses proportionally.
+- [ ] **F6-T1:** Compute `leftBand = [0, rd.cx - rd.halfW(y) - MARGIN]` and `rightBand = [rd.cx + rd.halfW(y) + MARGIN, w]` where `MARGIN = 6`. Return `{ leftBand, rightBand }`. Used by all placement functions.
+- [ ] **F7-T1:** Recalculate V-area cluster grid: determine bounding box of V-zone, align to dark green ground zone bounds, create tighter grid (e.g., 12×16px spacing vs current 20×24px).
+- [ ] **F9-T9:** Add to barn drawing: small hay bale rectangle (2×3px, golden yellow, inside barn boundary), door mark (thin darker rect on one barn wall).
 
 ---
 
-### Phase 3: Buffer + Wiring (Wave 3 — sequential)
+### Phase 3 — Drawing Primitives (Wave 2 — parallel)
 
 | Batch | Tasks | Parallel? | Rationale |
 |-------|-------|-----------|-----------|
-| C | F4-T1 → F4-T2 → F4-T3, F2-T2 | Sequential | Buffer needs scene; wiring needs buffer |
+| B | F6-T2, F7-T2, F8-T1, F9-T1, F9-T2, F9-T3, F9-T4, F9-T8 | Yes | All depend on F6-T1; all target different functions |
 
-- [ ] **F4-T1:** Add `this._offscreenBuf = null; this._bufW = 0; this._bufH = 0;` to `Ren` constructor. Add `_ensureBuffer(rd, w, h)` method: if buffer is null or dimensions changed, create `document.createElement('canvas')` at `(w, h)`, get its 2D context, call scene method with that context, store as `this._offscreenBuf`.
-- [ ] **F4-T2:** Modify `draw()`: after clearing and filling canvas background, call `_ensureBuffer(rd, logicalW, logicalH)`. If buffer exists, `ctx.drawImage(this._offscreenBuf, 0, 0)`. Replace the `if (this.theme.scene === 'rio_satellite')` check with a dispatch: `'rio_satellite'` → `_scene()`, `'city_nature'` → `_sceneCityNature()`, `'classic'` → no scene. Rio theme also benefits from offscreen buffer.
-- [ ] **F4-T3:** In theme switch handler (F2-T2's event listener): after updating `ren.theme`, set `ren._offscreenBuf = null`. On window `resize`: same invalidation. Ensure lane count changes (which trigger new `Sim`/`Ren` instances) naturally get fresh buffers.
-- [ ] **F2-T2:** Wire theme `<select>` `change` event: `document.getElementById('themeSelect').addEventListener('change', ...)`. On change: update each `Ren` instance's `this.theme = RENDER_THEMES[value]`, invalidate `_offscreenBuf`, trigger redraw.
-
----
-
-### Phase 4: MC-1 Gate
-
-- [ ] **MC-1:** All scene rendering complete. Offscreen buffer working. Theme switching functional. Run guard tests `--id S --id X --id AA` to confirm no sim regression. All 3 themes render correctly in browser.
+- [ ] **F6-T2:** Refactor all `Math.random()` placement calls in `_sceneCityNature()` to: (a) clamp `x` to appropriate band, (b) after placement, run per-element guard `if (elemRight > leftBandMax && elemLeft < rightBandMin) skip`.
+- [ ] **F7-T2:** Increase `_treeCluster()` call density in V-area until screenshot shows near-solid canopy. Target: ≤3px gap between adjacent cluster radii.
+- [ ] **F8-T1:** `_drawLamppost(ctx, x, y, scale)` — vertical line (pole), circle at top (lamp head). Colors: dark gray pole, warm yellow/cream circle. Scale ~1 = 2×8px total.
+- [ ] **F9-T1:** `_drawCow(ctx, x, y, scale)` — shadow ellipse offset (+1,+1), white oval body, black irregular patches (2–3 arcs), two small horn stubs at top.
+- [ ] **F9-T2:** `_drawChicken(ctx, x, y, scale)` — shadow, yellow teardrop body, tiny orange beak triangle at front. Scale ~1 = 4×5px.
+- [ ] **F9-T3:** `_drawPig(ctx, x, y, scale)` — shadow, pink oval, small darker circle for snout. Scale ~1 = 6×5px.
+- [ ] **F9-T4:** `_drawAnimalPen(ctx, x, y, w, h)` — 4-sided fence: strokeRect with wooden-brown stroke, dashed or segmented line style.
+- [ ] **F9-T8:** `_drawPond(ctx, x, y)` — 5–7 point irregular polygon using bezierCurveTo or arc sequences. Fill: `#6ec6e8` (light blue). Subtle darker border.
 
 ---
 
-### Phase 5: Visual Verification (Wave 4 — sequential)
+### Phase 4 — Placement & Assembly (Wave 3 — parallel)
 
 | Batch | Tasks | Parallel? | Rationale |
 |-------|-------|-----------|-----------|
-| D | F5-T1 → F5-T2 | Sequential | Screenshots before human review |
+| C | F6-T3, F8-T2, F8-T3, F8-T4, F8-T5, F9-T5, F9-T6, F9-T7 | Yes | All depend on Wave 2; all target different scene areas |
 
-- [ ] **F5-T1:** Open `traffic_v18.html` in browser. Select "Cidade & Natureza". Capture screenshots at 1L, 2L, 3L configurations.
-- [ ] **F5-T2:** Human visual gate. Leo or user confirms: houses look right, trees fill V-area, farm details visible, ground colors correct, road is clearly dominant, no elements on road. If rejected → iterate on F3 tasks.
+- [ ] **F6-T3:** Test card `F6_overlap_check`: instantiate `Ren` with 1L/2L/3L sim, call `_sceneCityNature()`, collect all element bounding rects, assert none intersect road band.
+- [ ] **F8-T2:** Place lamppost row: from `canvas.height * 0.05` to `canvas.height * 0.95`, every `24px`, at `x = leftBand.max - 4` (right edge of left zone, adjacent to road).
+- [ ] **F8-T3:** Place 3–6 interior lampposts: random positions in leftBand, avoiding house rectangles. Min distance 16px from any house.
+- [ ] **F8-T4:** For 30% of houses: place bench (4×2px rect, gray-brown) beside house. For 50% of houses: place mailbox (2×2px rect, dark blue/black) at house front edge.
+- [ ] **F8-T5:** Between adjacent house pairs (where gap < 20px): draw 3–5 fence segment lines (horizontal, short strokes, wooden brown).
+- [ ] **F9-T5:** Choose pen position: near barn, within rightBand. Draw pen rect (30×20px). Place 1–3 cows + 2–4 pigs inside pen rect. Place 1–2 animals (random species) at random offset 6–12px outside pen corners.
+- [ ] **F9-T6:** `_drawCoop(ctx, x, y)` — small rect (10×8px), roof stripe (dark red `#8b2020`). Place 12–20px from chicken cluster.
+- [ ] **F9-T7:** Place chicken flock (4–8 chickens) in 20×14px scatter zone adjacent to coop. Random offsets within zone.
+
+---
+
+### Phase 5 — MC-2 Gate
+
+- [ ] **MC-2:** All Session 2 features landed. Run `node run_traffic_suite.js --id S --id X --id AA` — all guards green. Open browser: verify all 3 themes still work. Confirm animals, props, V-density, pond, coop all visible.
+
+---
+
+### Phase 6 — Verification (Wave 4 — sequential)
+
+| Batch | Tasks | Parallel? | Rationale |
+|-------|-------|-----------|-----------|
+| D | F10-T1, F10-T2 parallel, then F10-T3 | Partial | Screenshots + assertion can run together; human gate waits |
+
+- [ ] **F10-T1:** Playwright screenshots at 1L, 2L, 3L — save as `screenshot_s2_1L.png`, `screenshot_s2_2L.png`, `screenshot_s2_3L.png`.
+- [ ] **F10-T2:** Run overlap assertion test card. Report zero violations.
+- [ ] **F10-T3:** Human reviews screenshots + browser. Explicitly approves before marking done.
 
 ---
 
@@ -424,30 +550,27 @@ F2-T1 (dropdown HTML) ──┐         │                                     
 
 | Risk | Likelihood | Impact | Mitigation Strategy |
 |------|------------|--------|---------------------|
-| Houses placed inside road polygon | Medium | High — visual bug | Use `rd.cx - rd.halfW(y)` as left boundary; add margin. Test with assertion. |
-| Offscreen buffer stale after resize | Low | Medium — visual glitch | Invalidate on `resize` event + dimension check in `_ensureBuffer()` |
-| Leo doesn't approve visual style | Medium | Medium — rework needed | Start with ground zones + basic houses; get early feedback before shadows/details |
-| Rio theme breaks from buffer changes | Low | High — regression | Test Rio theme explicitly after buffer wiring (F4-T2). Guard tests catch sim issues. |
-| Narrow canvas: houses unrecognizable when scaled | Low | Low — cosmetic | Set minimum house size (6×8px); below that, skip individual houses and show just ground color |
-| `_treeCluster()` draws over road on narrow V-area | Low | Medium | Pass road-aware bounds to cluster positioning; clamp cluster radius |
+| Animals too small to read at canvas scale (~220px wide) | Medium | High | Start at scale=1.5× and iterate; minimum size is cow ~14×10px |
+| Pen + coop + pond + loose animals crowd farm side | Medium | Medium | Place pond away from pen; coop offset from pen; take screenshot after each addition |
+| V-area over-packing causes performance drop | Low | Low | Pre-render to offscreen buffer (already done); packing only affects buffer build time |
+| Safe zone refactor breaks existing house/tree placement | Medium | High | Take screenshot before and after F6-T2; compare house positions |
+| Per-element guard too aggressive (clips edge elements) | Low | Low | MARGIN=6 is conservative; reduce to 2 if needed |
+| Barn refresh overlaps existing barn drawing | Low | Low | Hay bale and door mark are additive — drawn on top of existing barn fill |
 
 ---
 
 ## 9. Open Questions
 
-- [ ] Exact house dimensions (width × height in px) — start with 12×16, iterate based on visual review
-- [ ] Number of houses to place — start with 20, adjust for density feel
-- [ ] Farm crop row spacing and color — start with 8px spacing, slightly darker green
-- [ ] Display name language — "Cidade & Natureza" confirmed, but should Classic/Rio also be Portuguese? ("Clássico", "Rio Satélite")
-- [ ] Should the offscreen buffer also be applied to the Rio theme for consistency? (Yes — proposed in F4-T2)
+- [ ] Exact animal scale per canvas size — start with `scale = Math.min(1.5, availableWidth / 60)` and tune from screenshot
+- [ ] Pond position relative to pen — start 15px below pen, adjust if crowded
+- [ ] Whether to place pond or animals first (matters for visual overlap) — animals drawn on top of pond suggested
 
 ---
 
 ## 10. Approval Checklist
 
 - [ ] Requirements reviewed by: _____________ Date: _________
-- [ ] Architecture reviewed by: _____________ Date: _________
-- [ ] Plan approved by: _____________ Date: _________
+- [ ] Session 2 plan approved by: _____________ Date: _________
 
 ---
 
@@ -455,4 +578,5 @@ F2-T1 (dropdown HTML) ──┐         │                                     
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-03-14 | Initial plan created from DISCOVERY_City_Nature_Background.md | Claude Opus 4.6 |
+| 2026-03-14 | Initial plan created from DISCOVERY_City_Nature_Background.md (Session 1) | Claude Opus 4.6 |
+| 2026-03-15 | Session 2 enhancement pass: added F6 (road overlap), F7 (V density), F8 (urban props), F9 (animal system), F10 (verification). Marked F1–F5 + MC-1 complete. Updated dependency table, wave structure, risk assessment. | Claude Sonnet 4.6 |
