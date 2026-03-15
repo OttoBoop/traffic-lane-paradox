@@ -425,7 +425,7 @@
   <div class="hdr">
     <h1>The Lane <b>Paradox</b></h1>
     <div class="ctrls">
-        <div class="cg"><label for="nCars">Cars</label><input type="number" id="nCars" value="8" min="2" title="Number of cars"></div>
+        <div class="cg"><label for="nCars">Cars</label><input type="number" id="nCars" value="20" min="2" title="Number of cars"></div>
         <div class="cg"><label for="split">Left%</label><input type="range" id="split" min="0" max="100" value="50" step="5" title="Share of cars that want the left branch"><span
           class="cv" id="splitV">50</span></div>
         <div class="cg"><label for="spd">Speed</label><input type="range" id="spd" min="0.3" max="3" value="1" step="0.1" title="Simulation speed"><span
@@ -475,7 +475,7 @@
     }
     function resize() { scenarios.forEach((_, i) => { const wr = $(`w${i}`), cv = $(`c${i}`); if (!wr || !cv) return; const r = wr.getBoundingClientRect(), d = devicePixelRatio || 1; cv.width = r.width * d; cv.height = r.height * d; cv.getContext('2d').scale(d, d); cvs[i] = cv; }); }
     function initSims() {
-      const nc = Math.max(2, parseInt($('nCars').value) || 8), sp = parseInt($('split').value) || 50;
+      const nc = Math.max(2, parseInt($('nCars').value) || 20), sp = parseInt($('split').value) || 50;
       sims = scenarios.map((sc, i) => { const s = new Sim(sc.lanes, nc, sp, gSeed + i); const cv = cvs[i]; if (cv) { const logical = logicalCanvasSize(cv); s.init(logical.w, logical.h); } return s; });
       const selTheme = ($('themeSelect') || {}).value || 'rioSatellite';
       rens = sims.map((s, i) => new Ren(cvs[i], s, { theme: selTheme }));
