@@ -219,7 +219,7 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 |----|------|--------------|------------|--------|--------|
 | F6-T1 | Implement `_safeZones()` — compute leftBand + rightBand from `rd.cx`, `rd.halfW()` | None | No | S | ✅ |
 | F6-T2 | Refactor all element placement in `_sceneCityNature()` to use zone bands + per-element guard | F6-T1 | No | M | ✅ |
-| F6-T3 | Add automated assertion test: place all elements, verify no center inside road band | F6-T2 | No | S | ⬜ |
+| F6-T3 | Add automated assertion test: place all elements, verify no center inside road band | F6-T2 | No | S | ✅ |
 
 **Tests Required:**
 
@@ -245,7 +245,7 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
 | F7-T1 | Recalculate V-area cluster positions: tighter grid, more rows, aligned to dark ground zone | None | No | S | ✅ |
-| F7-T2 | Increase cluster call count and reduce inter-cluster gaps until near-solid coverage | F7-T1 | No | S | ⬜ |
+| F7-T2 | Increase cluster call count and reduce inter-cluster gaps until near-solid coverage | F7-T1 | No | S | ✅ |
 
 **Tests Required:**
 
@@ -273,8 +273,8 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
 | F8-T1 | Implement `_drawLamppost(ctx, x, y, scale)` — pole + circular head top-down | F6-T1 | No | S | ✅ |
-| F8-T2 | Place road-edge lampposts: evenly spaced along left road boundary | F8-T1 | No | S | ⬜ |
-| F8-T3 | Place interior lampposts: random positions between house clusters | F8-T1 | No | S | ⬜ |
+| F8-T2 | Place road-edge lampposts: evenly spaced along left road boundary | F8-T1 | No | S | ✅ |
+| F8-T3 | Place interior lampposts: random positions between house clusters | F8-T1 | No | S | ✅ |
 | F8-T4 | Implement bench + mailbox: small rect shapes, placed near some houses | F6-T1 | No | S | ⬜ |
 | F8-T5 | Implement property-line fences: 3–5 segment lines between adjacent house plots | F6-T1 | No | S | ⬜ |
 
@@ -450,12 +450,12 @@ F9-T9 (barn refresh) ───────────────────�
 | F5-T2 | Session 1 human gate | F5-T1 | (done) | ✅ |
 | **F6-T1** | `_safeZones()` helper | None | F6-T2, F7-T1, F8-T1, F9-T1–T4, F9-T8 | ✅ |
 | **F6-T2** | Refactor placement to use zones + guard | F6-T1 | F6-T3 | ✅ |
-| **F6-T3** | Automated overlap assertion test card | F6-T2 | MC-2 | ⬜ |
+| **F6-T3** | Automated overlap assertion test card | F6-T2 | MC-2 | ✅ |
 | **F7-T1** | V-area cluster grid recalc (align to dark ground) | None | F7-T2 | ✅ |
-| **F7-T2** | Increase cluster count / reduce gaps → solid | F7-T1 | MC-2 | ⬜ |
+| **F7-T2** | Increase cluster count / reduce gaps → solid | F7-T1 | MC-2 | ✅ |
 | **F8-T1** | `_drawLamppost()` primitive | F6-T1 | F8-T2, F8-T3 | ✅ |
-| **F8-T2** | Road-edge lamppost row | F8-T1 | MC-2 | ⬜ |
-| **F8-T3** | Interior lampposts between houses | F8-T1 | MC-2 | ⬜ |
+| **F8-T2** | Road-edge lamppost row | F8-T1 | MC-2 | ✅ |
+| **F8-T3** | Interior lampposts between houses | F8-T1 | MC-2 | ✅ |
 | **F8-T4** | Bench + mailbox shapes near houses | F6-T1 | MC-2 | ⬜ |
 | **F8-T5** | Property-line fence segments | F6-T1 | MC-2 | ⬜ |
 | **F9-T1** | `_drawCow()` — oval + horns + patches + shadow | F6-T1 | F9-T5 | ✅ |
@@ -581,3 +581,4 @@ All F1–F5 tasks done. Theme, selector, offscreen buffer, houses, trees, pedest
 | 2026-03-14 | Initial plan created from DISCOVERY_City_Nature_Background.md (Session 1) | Claude Opus 4.6 |
 | 2026-03-15 | Session 2 enhancement pass: added F6 (road overlap), F7 (V density), F8 (urban props), F9 (animal system), F10 (verification). Marked F1–F5 + MC-1 complete. Updated dependency table, wave structure, risk assessment. | Claude Sonnet 4.6 |
 | 2026-03-15 | Wave 2 complete: F6-T2, F8-T1, F9-T1, F9-T2, F9-T3, F9-T4, F9-T8 marked ✅. Drawing primitives + zone refactor implemented. | Claude Opus 4.6 |
+| 2026-03-15 | Wave 3a complete: F6-T3, F7-T2, F8-T2, F8-T3 marked ✅. Overlap assertion, V-area fillers, lampposts. | Claude Opus 4.6 |
