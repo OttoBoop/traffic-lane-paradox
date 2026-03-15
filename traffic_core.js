@@ -1132,7 +1132,7 @@
       const moveOrder = [...active].sort((a, b) => this._movementPriority(b) - this._movementPriority(a));
       for (const c of moveOrder) {
         if (c.fixed) { c.speed = 0; c.steer = 0; continue; }
-        const pose = this._chooseLegalMove(c, dt, rd, active);
+        const pose = this._chooseLegalMove(c, dt, rd, allActive);
         this._commitPose(c, pose.x, pose.y, pose.th, rd); c.speed = pose.speed; c.steer = pose.steer;
         c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th); // update after commit (P3)
       }
@@ -1219,9 +1219,9 @@
       // distance (2×CAR_HALF_DIAG + 2px), preventing persistent deadlocks and satOverlap counts.
       // Separation pass — guarded: prefer direction that doesn't cascade into third car.
       const safeSepDist = CAR_HALF_DIAG * 2 + 2;
-      for (let i = 0; i < active.length; i++) {
-        for (let j = i + 1; j < active.length; j++) {
-          const a = active[i], b = active[j]; if (a.done || a.fixed || b.done || b.fixed) continue;
+      for (let i = 0; i < allActive.length; i++) {
+        for (let j = i + 1; j < allActive.length; j++) {
+          const a = allActive[i], b = allActive[j]; if (a.done || a.fixed || b.done || b.fixed) continue;
           const sepDx = b.x - a.x, sepDy = b.y - a.y;
           if (sepDx * sepDx + sepDy * sepDy > safeSepDist * safeSepDist) continue;
           if (!satOverlap(a, b)) continue;
@@ -1229,18 +1229,18 @@
           const [hi, lo] = pa >= pb ? [a, b] : [b, a];
           const loDx = lo.x - hi.x, loDy = lo.y - hi.y;
           const dist = Math.sqrt(loDx * loDx + loDy * loDy);
-          if (dist < 0.01) { this._commitPose(lo, lo.x + 1, lo.y, lo.th, rd, active, hi.id); lo.speed = 0; continue; }
+          if (dist < 0.01) { this._commitPose(lo, lo.x + 1, lo.y, lo.th, rd, allActive, hi.id); lo.speed = 0; continue; }
           const push = safeSepDist - dist + 0.5;
           const nx = lo.x + (loDx / dist) * push, ny = lo.y + (loDy / dist) * push;
           // Push with overlap guard — excludes hi (we're separating FROM it).
           // If push would cascade into a third car, _commitPose rejects and car stays put.
-          this._commitPose(lo, nx, ny, lo.th, rd, active, hi.id); lo.speed = 0;
+          this._commitPose(lo, nx, ny, lo.th, rd, allActive, hi.id); lo.speed = 0;
         }
       }
 
-      for (let i = 0; i < active.length; i++) {
-        for (let j = i + 1; j < active.length; j++) {
-          const a = active[i], b = active[j]; if (a.done || b.done) continue;
+      for (let i = 0; i < allActive.length; i++) {
+        for (let j = i + 1; j < allActive.length; j++) {
+          const a = allActive[i], b = allActive[j]; if (a.done || b.done) continue;
           if (Math.hypot(a.x - b.x, a.y - b.y) > CAR_L * 2) continue;
           if (satOverlap(a, b)) { this.satCount++; this.testMetrics.overlapCount++; this._event('overlap', { aId: a.id, bId: b.id }); }
           if (a.seg !== 'main' && b.seg === a.seg) {
