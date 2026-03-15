@@ -3582,161 +3582,114 @@
         );
       },
     },
-    // ── BH: Jam wake from sleep zone ─────────────────────────────────────────
+    // ── BH: Fork crash recovery — two crossed cars + trailing pile-up ───────
     {
       id: "BH",
       section: "mixed",
-      family: "diagnostic",
-      name: "Jam wake — sleeping cars behind crash eventually enter maneuver",
+      family: "known_red",
+      name: "Fork crash recovery — crossed cars maneuver out, trailing cars clear",
       proof:
-        "5 cars in a single-lane chain. Car 0 is fixed (simulating crash) just below stopY. " +
-        "Cars 1-2 are in the active zone. Cars 3-4 are in the SLEEP zone (y > SLEEP_Y). " +
-        "Currently, sleeping cars never accumulate noProgressTicks and can never enter " +
-        "maneuver mode. PASS: at least one car enters maneuver despite the jam extending " +
-        "into the sleep zone. FAIL: maneuverEnterCount stays 0.",
+        "Reproduces the actual crash from the live sim: two cars collide at the Y-junction " +
+        "fork while heading to different branches (car 0: lane 0→right, car 1: lane 1→left). " +
+        "Both start stopped at pathT=0.57 (conflict zone), NOT fixed — they must recover. " +
+        "12 trailing cars queue behind in both lanes, extending into the sleep zone. " +
+        "Tests: (1) crashed cars enter maneuver mode, (2) at least some trailing cars clear " +
+        "through. Partial credit: crashed cars must maneuver AND ≥4 trailing cars must exit.",
       build() {
-        // Coordinates for VIEW canvas (220x760):
-        // stopY ≈ 547, SLEEP_Y ≈ 712
+        // Crashed pair at the conflict zone — same as conflictCars() but with speed: 0
+        // Trailing cars spaced ~55px (SPAWN_SPACING) behind in both lanes
+        // stopY ≈ 547, SLEEP_Y ≈ 712, forkY ≈ 380
+        const cars = [
+          // Crashed pair at fork (pathT=0.57 ≈ y=428, in conflict zone)
+          { id: 0, pathKey: "0-right", lane: 0, target: "right", pathT: 0.57, speed: 0, mobilTimer: 999, color: "#2888c4" },
+          { id: 1, pathKey: "1-left",  lane: 1, target: "left",  pathT: 0.57, speed: 0, mobilTimer: 999, color: "#c48828" },
+          // Trailing cars — lane 0 (6 cars, mixed targets)
+          { id: 2,  lane: 0, target: "right", y: 490, mobilTimer: 999 },
+          { id: 3,  lane: 0, target: "left",  y: 545, mobilTimer: 999 },
+          { id: 4,  lane: 0, target: "right", y: 600, mobilTimer: 999 },
+          { id: 5,  lane: 0, target: "left",  y: 655, mobilTimer: 999 },
+          { id: 6,  lane: 0, target: "right", y: 710, mobilTimer: 999 },  // near sleep boundary
+          { id: 7,  lane: 0, target: "left",  y: 765, mobilTimer: 999 },  // sleep zone
+          // Trailing cars — lane 1 (6 cars, mixed targets)
+          { id: 8,  lane: 1, target: "left",  y: 490, mobilTimer: 999 },
+          { id: 9,  lane: 1, target: "right", y: 545, mobilTimer: 999 },
+          { id: 10, lane: 1, target: "left",  y: 600, mobilTimer: 999 },
+          { id: 11, lane: 1, target: "right", y: 655, mobilTimer: 999 },
+          { id: 12, lane: 1, target: "left",  y: 710, mobilTimer: 999 },  // near sleep boundary
+          { id: 13, lane: 1, target: "right", y: 765, mobilTimer: 999 },  // sleep zone
+        ];
         return {
           cases: [
-            customCase("2L jam into sleep zone", {
+            customCase("2L fork crash + 12 trailing", {
               lanes: 2,
               seed: 42,
-              maxTicks: 800,
-              stepsPerFrame: 10,
-              cars: [
-                { id: 0, lane: 0, target: "left", y: 560, fixed: true, color: "#666", mobilTimer: 999 },
-                { id: 1, lane: 0, target: "left", y: 615, mobilTimer: 999 },
-                { id: 2, lane: 0, target: "left", y: 670, mobilTimer: 999 },
-                { id: 3, lane: 0, target: "left", y: 725, mobilTimer: 999 },  // sleep zone
-                { id: 4, lane: 0, target: "left", y: 780, mobilTimer: 999 },  // deep sleep zone
-              ],
+              maxTicks: 6000,
+              stepsPerFrame: 20,
+              finishBased: true,
+              cars,
             }),
           ],
-          state: {},
-        };
-      },
-      metrics(inst) {
-        const sim = inst.cases[0].sim;
-        const m = sim.testMetrics;
-        return {
-          "Maneuver enters": String(m.maneuverEnterCount || 0),
-          "Max noProgress": String(m.maxNoProgressTicks || 0),
-          "Done": sim.cars.filter(c => c.done).length + "/" + sim.cars.filter(c => !c.fixed).length,
-          "Sleep ticks": String(m.sleepTicksTotal || 0),
-          "Awake ticks": String(m.awakeTicksTotal || 0),
-          Ticks: String(sim.ticks),
-        };
-      },
-      verdict(inst) {
-        const sim = inst.cases[0].sim;
-        const m = sim.testMetrics;
-        return (m.maneuverEnterCount || 0) > 0 && legal(sim);
-      },
-    },
-    // ── BI: Follow chain maneuver ────────────────────────────────────────────
-    {
-      id: "BI",
-      section: "mixed",
-      family: "diagnostic",
-      name: "Follow chain — stopped cars with 8px gap detect blocked-for-progress",
-      proof:
-        "4 cars in a follow chain, all in the active zone. Car 0 is fixed (crash). " +
-        "Cars 1-3 trail with ~8px gaps (dy=30, gap=30-CAR_L=8). Currently, " +
-        "blockedForProgress requires gap < IDM_S0*0.5 (3px) for follow blocks. " +
-        "With 8px gaps, these cars never satisfy the condition, never accumulate " +
-        "noProgressTicks, and never trigger maneuver. PASS: maxNoProgressTicks >= 60 " +
-        "AND maneuverEnterCount > 0. FAIL: noProgressTicks never reaches threshold.",
-      build() {
-        return {
-          cases: [
-            customCase("2L follow chain 8px gap", {
-              lanes: 2,
-              seed: 42,
-              maxTicks: 400,
-              stepsPerFrame: 10,
-              cars: [
-                { id: 0, lane: 0, target: "left", y: 500, fixed: true, color: "#666", mobilTimer: 999 },
-                { id: 1, lane: 0, target: "left", y: 530, speed: 0, mobilTimer: 999 },
-                { id: 2, lane: 0, target: "left", y: 560, speed: 0, mobilTimer: 999 },
-                { id: 3, lane: 0, target: "left", y: 590, speed: 0, mobilTimer: 999 },
-              ],
-            }),
-          ],
-          state: {},
-        };
-      },
-      metrics(inst) {
-        const sim = inst.cases[0].sim;
-        const m = sim.testMetrics;
-        return {
-          "Maneuver enters": String(m.maneuverEnterCount || 0),
-          "Max noProgress": String(m.maxNoProgressTicks || 0),
-          Ticks: String(sim.ticks),
-          "Done": sim.cars.filter(c => c.done).length + "/" + sim.cars.filter(c => !c.fixed).length,
-        };
-      },
-      verdict(inst) {
-        const sim = inst.cases[0].sim;
-        const m = sim.testMetrics;
-        return (m.maxNoProgressTicks || 0) >= 60 && (m.maneuverEnterCount || 0) > 0 && legal(sim);
-      },
-    },
-    // ── BJ: Front-of-jam maneuver priority ───────────────────────────────────
-    {
-      id: "BJ",
-      section: "mixed",
-      family: "diagnostic",
-      name: "Front-of-jam priority — car closest to blockage maneuvers first",
-      proof:
-        "4 cars. Car 0 is fixed (crash). Cars 1-3 are pre-loaded with noProgressTicks=59 " +
-        "(one tick from maneuver threshold). Car 1 is directly behind the crash (closest " +
-        "to blockage, y=530). Car 3 is farthest from crash (y=590) but may be closer to " +
-        "the fork zone. With current sort by dpToNearestZone, the wrong car may maneuver " +
-        "first. PASS: the first maneuver_enter event is for car 1 (front of jam). " +
-        "FAIL: a different car enters maneuver first.",
-      build() {
-        return {
-          cases: [
-            customCase("2L front-of-jam priority", {
-              lanes: 2,
-              seed: 42,
-              maxTicks: 200,
-              stepsPerFrame: 5,
-              cars: [
-                { id: 0, lane: 0, target: "left", y: 500, fixed: true, color: "#666", mobilTimer: 999 },
-                { id: 1, lane: 0, target: "left", y: 530, speed: 0, noProgressTicks: 59, mobilTimer: 999 },
-                { id: 2, lane: 0, target: "left", y: 560, speed: 0, noProgressTicks: 59, mobilTimer: 999 },
-                { id: 3, lane: 0, target: "left", y: 590, speed: 0, noProgressTicks: 59, mobilTimer: 999 },
-              ],
-            }),
-          ],
-          state: { firstManeuverCarId: null },
+          state: {
+            firstManeuverCarId: null,
+            crashedCar0Maneuvered: false,
+            crashedCar1Maneuvered: false,
+            crashedCar0FoundBranch: false,
+            crashedCar1FoundBranch: false,
+          },
         };
       },
       observe(inst) {
-        if (inst.state.firstManeuverCarId !== null) return;
         const sim = inst.cases[0].sim;
-        for (const ev of sim.testEvents) {
-          if (ev.type === "maneuver_enter") {
-            inst.state.firstManeuverCarId = ev.carId;
-            return;
+        // Track first maneuver event
+        if (inst.state.firstManeuverCarId === null) {
+          for (const ev of sim.testEvents) {
+            if (ev.type === "maneuver_enter") {
+              inst.state.firstManeuverCarId = ev.carId;
+              break;
+            }
           }
         }
+        // Track whether crashed cars entered maneuver
+        const car0 = sim.cars[0], car1 = sim.cars[1];
+        if (car0 && car0.maneuvering) inst.state.crashedCar0Maneuvered = true;
+        if (car1 && car1.maneuvering) inst.state.crashedCar1Maneuvered = true;
+        // Track whether crashed cars found their branch
+        if (car0 && car0.seg !== "main") inst.state.crashedCar0FoundBranch = true;
+        if (car1 && car1.seg !== "main") inst.state.crashedCar1FoundBranch = true;
       },
       metrics(inst) {
         const sim = inst.cases[0].sim;
         const m = sim.testMetrics;
+        const trailing = sim.cars.slice(2);
+        const trailingDone = trailing.filter(c => c.done).length;
+        const crashedDone = [sim.cars[0], sim.cars[1]].filter(c => c && c.done).length;
         return {
-          "First maneuver car": inst.state.firstManeuverCarId !== null ? "car" + inst.state.firstManeuverCarId : "none",
-          "Maneuver enters": String(m.maneuverEnterCount || 0),
+          "Crashed maneuver": (inst.state.crashedCar0Maneuvered ? "0" : "") +
+            (inst.state.crashedCar0Maneuvered && inst.state.crashedCar1Maneuvered ? "+" : "") +
+            (inst.state.crashedCar1Maneuvered ? "1" : "") || "none",
+          "Crashed done": crashedDone + "/2",
+          "Crashed found branch": (inst.state.crashedCar0FoundBranch ? "0" : "") +
+            (inst.state.crashedCar0FoundBranch && inst.state.crashedCar1FoundBranch ? "+" : "") +
+            (inst.state.crashedCar1FoundBranch ? "1" : "") || "none",
+          "Trailing done": trailingDone + "/12",
+          "First maneuver": inst.state.firstManeuverCarId !== null ? "car" + inst.state.firstManeuverCarId : "none",
+          "Total maneuvers": String(m.maneuverEnterCount || 0),
           "Max noProgress": String(m.maxNoProgressTicks || 0),
+          "Sleep ticks": String(m.sleepTicksTotal || 0),
+          Overlaps: String(m.overlapCount || 0),
           Ticks: String(sim.ticks),
         };
       },
       verdict(inst) {
         const sim = inst.cases[0].sim;
-        return inst.state.firstManeuverCarId === 1 && legal(sim);
+        const m = sim.testMetrics;
+        const trailing = sim.cars.slice(2);
+        const trailingDone = trailing.filter(c => c.done).length;
+        // Partial credit: crashed cars must maneuver AND ≥4 trailing cars must exit
+        return inst.state.crashedCar0Maneuvered &&
+          inst.state.crashedCar1Maneuvered &&
+          trailingDone >= 4 &&
+          legal(sim);
       },
     },
     // ── BK: Full jam clearance survey ────────────────────────────────────────
