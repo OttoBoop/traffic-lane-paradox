@@ -3798,6 +3798,58 @@
         return doneCount >= 4 && legal(sim);
       },
     },
+    // ─── Card BL: _safeZones() road band computation ──────────────────────
+    {
+      id: "BL",
+      section: "mixed",
+      family: "guard_green",
+      name: "_safeZones() helper — road exclusion bands",
+      proof:
+        "Ren.prototype._safeZones(rd, w, margin) must exist and return " +
+        "{ left: {min, max}, right: {min, max} } that correctly exclude the road " +
+        "surface. left.max must equal rd.cx - rd.halfW() - margin. " +
+        "right.min must equal rd.cx + rd.halfW() + margin. Tested for 1L, 2L, 3L.",
+      build() {
+        const margin = 6;
+        const w = 220;
+        const laneCounts = [1, 2, 3];
+        const cases = laneCounts.map((lanes) =>
+          standardCase(`${lanes}L`, { lanes, cars: 0, maxTicks: 1 })
+        );
+        const results = laneCounts.map((lanes, i) => {
+          const rd = cases[i].sim.road;
+          if (typeof TC.Ren.prototype._safeZones !== "function") {
+            return { pass: false, reason: "_safeZones not defined on Ren.prototype" };
+          }
+          const zones = TC.Ren.prototype._safeZones.call({}, rd, w, margin);
+          const roadL = rd.cx - rd.halfW();
+          const roadR = rd.cx + rd.halfW();
+          const pass =
+            zones !== null &&
+            typeof zones === "object" &&
+            typeof zones.left === "object" &&
+            typeof zones.right === "object" &&
+            zones.left.min === 0 &&
+            Math.abs(zones.left.max - (roadL - margin)) < 0.001 &&
+            Math.abs(zones.right.min - (roadR + margin)) < 0.001 &&
+            zones.right.max === w;
+          return { pass, lanes, roadL, roadR, zones };
+        });
+        return { cases, state: { results, margin } };
+      },
+      metrics(inst) {
+        const exists = typeof TC.Ren.prototype._safeZones === "function";
+        return {
+          "Method exists": String(exists),
+          "1L pass": String(inst.state.results[0]?.pass),
+          "2L pass": String(inst.state.results[1]?.pass),
+          "3L pass": String(inst.state.results[2]?.pass),
+        };
+      },
+      verdict(inst) {
+        return inst.state.results.every((r) => r.pass);
+      },
+    },
   ];
 
   const FAMILY_META = {
