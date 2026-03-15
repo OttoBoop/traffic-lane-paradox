@@ -2454,15 +2454,17 @@
       ctx.moveTo(x + bw * 0.8, y + bh * 0.2);
       ctx.lineTo(x + bw * 0.2, y + bh * 0.8);
       ctx.stroke();
-      // Hay bale — small golden rectangle in lower-left corner
+      // Hay bale — bold golden rectangle, lower-left of barn
       ctx.fillStyle = '#d4a830';
-      ctx.fillRect(x + bw * 0.08, y + bh * 0.62, bw * 0.22, bh * 0.22);
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(x + bw * 0.08, y + bh * 0.62, bw * 0.22, bh * 0.22);
-      // Door mark — thin darker rect on bottom wall (south-facing entrance)
+      ctx.fillRect(x + bw * 0.06, y + bh * 0.55, bw * 0.35, bh * 0.30);
+      ctx.fillStyle = '#b8891a';
+      ctx.fillRect(x + bw * 0.06, y + bh * 0.55 + bh * 0.10, bw * 0.35, bh * 0.04); // wrap line
+      ctx.strokeStyle = 'rgba(0,0,0,0.30)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(x + bw * 0.06, y + bh * 0.55, bw * 0.35, bh * 0.30);
+      // Door mark — prominent dark rect on south-facing wall
       ctx.fillStyle = t.barnWall || '#7a3b1e';
-      ctx.fillRect(x + bw * 0.38, y + bh * 0.78, bw * 0.24, bh * 0.18);
+      ctx.fillRect(x + bw * 0.36, y + bh * 0.70, bw * 0.28, bh * 0.26);
     }
     _sceneCityNature(rd, w, h, ctx) {
       const t = this.theme, m = this._sceneMetrics(rd, w, h);
