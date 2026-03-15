@@ -3941,6 +3941,218 @@
         return inst.state.results.every((r) => r.pass);
       },
     },
+    // ─── Card BO: Visual state indicator structural test — canvas ops per trafficMode ──
+    {
+      id: "BO",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Visual state indicators — correct canvas ops per trafficMode",
+      proof:
+        "Create a mock canvas context that records strokeStyle, setLineDash, and fillStyle calls. " +
+        "Create a Ren instance with mock canvas, set sim.started=true. For each trafficMode " +
+        "(yield, batch, hold_exit, maneuver, free, commit), call _car() with a mock car and " +
+        "verify the expected canvas operations were invoked.",
+      build() {
+        // Create a minimal sim + road for Ren
+        const sim = createScenarioSim({
+          lanes: 2, nCars: 0, w: VIEW.w, h: VIEW.h, seed: 1,
+        });
+        sim.start();
+
+        // Mock canvas context that records relevant calls
+        function createSpyCtx() {
+          const log = [];
+          const handler = {
+            get(target, prop) {
+              if (prop in target) return target[prop];
+              // Return no-op functions for anything not explicitly tracked
+              return function () {};
+            },
+          };
+          const ctx = {
+            _log: log,
+            // State
+            globalAlpha: 1,
+            lineWidth: 1,
+            fillStyle: '',
+            strokeStyle: '',
+            font: '',
+            textAlign: '',
+            lineCap: '',
+            // Tracked methods
+            save() { log.push({ op: 'save' }); },
+            restore() { log.push({ op: 'restore' }); },
+            setLineDash(pattern) { log.push({ op: 'setLineDash', pattern: pattern.slice() }); },
+            getLineDash() { return []; },
+            stroke() { log.push({ op: 'stroke', strokeStyle: ctx.strokeStyle, lineWidth: ctx.lineWidth }); },
+            fill() { log.push({ op: 'fill', fillStyle: ctx.fillStyle }); },
+            fillRect(x, y, w, h) { log.push({ op: 'fillRect', fillStyle: ctx.fillStyle, x, y, w, h, alpha: ctx.globalAlpha }); },
+            clearRect() {},
+            beginPath() { log.push({ op: 'beginPath' }); },
+            closePath() {},
+            moveTo() {},
+            lineTo() {},
+            quadraticCurveTo() {},
+            bezierCurveTo() {},
+            arc() {},
+            ellipse() {},
+            translate() {},
+            rotate() {},
+            scale() {},
+            setTransform() {},
+            fillText() {},
+            strokeRect() {},
+            drawImage() {},
+            createLinearGradient() { return { addColorStop() {} }; },
+          };
+          return new Proxy(ctx, handler);
+        }
+
+        // Mock canvas object
+        function createMockCanvas(spyCtx) {
+          return {
+            width: VIEW.w,
+            height: VIEW.h,
+            getContext() { return spyCtx; },
+          };
+        }
+
+        // Create a mock car with specific trafficMode
+        function mockCar(trafficMode, target) {
+          return {
+            id: 0, x: 110, y: 400, th: -Math.PI / 2,
+            speed: 2.0, steer: 0, lane: 0, target: target || 'left',
+            done: false, seg: 'branch', color: '#c48828',
+            trafficMode: trafficMode,
+            zoneYielding: trafficMode === 'yield',
+            maneuvering: trafficMode === 'maneuver',
+            reversing: false,
+            blinker: 0,
+          };
+        }
+
+        // Test each mode
+        const modes = ['yield', 'batch', 'hold_exit', 'maneuver', 'free', 'commit'];
+        const results = {};
+
+        for (const mode of modes) {
+          const spyCtx = createSpyCtx();
+          const mockCv = createMockCanvas(spyCtx);
+          const ren = new TC.Ren(mockCv, sim);
+          ren.ctx = spyCtx; // Override to use our spy
+          const car = mockCar(mode, mode === 'batch' ? 'right' : 'left');
+          ren._car(car, 1.0);
+          const log = spyCtx._log;
+
+          // Extract stroke calls (mode border indicators)
+          const strokes = log.filter(e => e.op === 'stroke');
+          const dashes = log.filter(e => e.op === 'setLineDash');
+          // Extract fillRect calls with rgba fillStyle (tint overlay)
+          const tintFills = log.filter(e =>
+            e.op === 'fillRect' &&
+            e.fillStyle && typeof e.fillStyle === 'string' && e.fillStyle.startsWith('rgba')
+          );
+          // Look for arrow draws (small fill() calls after beginPath — triangles)
+          const fills = log.filter(e => e.op === 'fill');
+
+          results[mode] = {
+            strokeColors: strokes.map(s => s.strokeStyle),
+            dashPatterns: dashes.map(d => d.pattern),
+            hasTint: tintFills.length > 0,
+            fillCount: fills.length,
+          };
+        }
+
+        // Assertions:
+        // yield: amber solid border (#ddaa44), no tint, no arrow
+        const yieldOk = results.yield.strokeColors.some(c => c === '#ddaa44') &&
+          results.yield.dashPatterns.some(d => d.length === 0) &&
+          !results.yield.hasTint;
+
+        // batch: green solid border (#55bb77), no tint, has arrow (extra fill)
+        const batchOk = results.batch.strokeColors.some(c => c === '#55bb77') &&
+          !results.batch.hasTint &&
+          results.batch.fillCount > 1; // body fill + arrow fill
+
+        // hold_exit: green dotted border (#55bb77), dash [1.5,1.5], no tint, has arrow
+        const holdExitOk = results.hold_exit.strokeColors.some(c => c === '#55bb77') &&
+          results.hold_exit.dashPatterns.some(d => d.length === 2 && d[0] === 1.5) &&
+          !results.hold_exit.hasTint &&
+          results.hold_exit.fillCount > 1;
+
+        // maneuver: dashed red-orange border (#ff4400), dash [3,2], has tint
+        const maneuverOk = results.maneuver.strokeColors.some(c => c === '#ff4400') &&
+          results.maneuver.dashPatterns.some(d => d.length === 2 && d[0] === 3) &&
+          results.maneuver.hasTint;
+
+        // free: no mode-specific stroke (only body fill)
+        const freeOk = !results.free.strokeColors.some(c =>
+          c === '#ddaa44' || c === '#55bb77' || c === '#ff4400'
+        );
+
+        // commit: same as free — no mode-specific stroke
+        const commitOk = !results.commit.strokeColors.some(c =>
+          c === '#ddaa44' || c === '#55bb77' || c === '#ff4400'
+        );
+
+        // No separate reversing border (old white border should be gone)
+        const spyCtxReverse = createSpyCtx();
+        const mockCvReverse = createMockCanvas(spyCtxReverse);
+        const renReverse = new TC.Ren(mockCvReverse, sim);
+        renReverse.ctx = spyCtxReverse;
+        const reverseCar = mockCar('maneuver');
+        reverseCar.reversing = true;
+        renReverse._car(reverseCar, 1.0);
+        const reverseStrokes = spyCtxReverse._log.filter(e => e.op === 'stroke');
+        const noSeparateReverseBorder = !reverseStrokes.some(s => s.strokeStyle === '#ffffff');
+
+        const state = {
+          yieldOk, batchOk, holdExitOk, maneuverOk, freeOk, commitOk,
+          noSeparateReverseBorder,
+          details: results,
+        };
+
+        const cases = [standardCase("indicator-spy", { lanes: 2, cars: 0, maxTicks: 1 })];
+        return { cases, state };
+      },
+      metrics(inst) {
+        return {
+          yield: inst.state.yieldOk ? "PASS" : "FAIL",
+          batch: inst.state.batchOk ? "PASS" : "FAIL",
+          hold_exit: inst.state.holdExitOk ? "PASS" : "FAIL",
+          maneuver: inst.state.maneuverOk ? "PASS" : "FAIL",
+          free: inst.state.freeOk ? "PASS" : "FAIL",
+          commit: inst.state.commitOk ? "PASS" : "FAIL",
+          noReverseBorder: inst.state.noSeparateReverseBorder ? "PASS" : "FAIL",
+        };
+      },
+      verdict(inst) {
+        return (
+          inst.state.yieldOk &&
+          inst.state.batchOk &&
+          inst.state.holdExitOk &&
+          inst.state.maneuverOk &&
+          inst.state.freeOk &&
+          inst.state.commitOk &&
+          inst.state.noSeparateReverseBorder
+        );
+      },
+    },
+    // ─── Card BP: _drawCoop() existence check (F9-T6) ──────────────────────
+    {
+      id: "BP",
+      section: "mixed",
+      family: "guard_green",
+      name: "_drawCoop() — chicken coop drawing primitive exists",
+      proof:
+        "Ren.prototype._drawCoop must be a function.",
+      build() {
+        const exists = typeof TC.Ren.prototype._drawCoop === "function";
+        return { cases: [], state: { exists } };
+      },
+      metrics(inst) { return { "_drawCoop exists": inst.state.exists ? "YES" : "NO" }; },
+      verdict(inst) { return inst.state.exists; },
+    },
   ];
 
   const FAMILY_META = {
