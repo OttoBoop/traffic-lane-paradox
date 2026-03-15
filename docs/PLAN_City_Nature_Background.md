@@ -218,7 +218,7 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
 | F6-T1 | Implement `_safeZones()` — compute leftBand + rightBand from `rd.cx`, `rd.halfW()` | None | No | S | ✅ |
-| F6-T2 | Refactor all element placement in `_sceneCityNature()` to use zone bands + per-element guard | F6-T1 | No | M | ⬜ |
+| F6-T2 | Refactor all element placement in `_sceneCityNature()` to use zone bands + per-element guard | F6-T1 | No | M | ✅ |
 | F6-T3 | Add automated assertion test: place all elements, verify no center inside road band | F6-T2 | No | S | ⬜ |
 
 **Tests Required:**
@@ -272,7 +272,7 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F8-T1 | Implement `_drawLamppost(ctx, x, y, scale)` — pole + circular head top-down | F6-T1 | No | S | ⬜ |
+| F8-T1 | Implement `_drawLamppost(ctx, x, y, scale)` — pole + circular head top-down | F6-T1 | No | S | ✅ |
 | F8-T2 | Place road-edge lampposts: evenly spaced along left road boundary | F8-T1 | No | S | ⬜ |
 | F8-T3 | Place interior lampposts: random positions between house clusters | F8-T1 | No | S | ⬜ |
 | F8-T4 | Implement bench + mailbox: small rect shapes, placed near some houses | F6-T1 | No | S | ⬜ |
@@ -308,14 +308,14 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 
 | ID | Task | Dependencies | Live Test? | Effort | Status |
 |----|------|--------------|------------|--------|--------|
-| F9-T1 | Implement `_drawCow(ctx, x, y, scale)` — oval + horn stubs + patches + shadow | F6-T1 | No | M | ⬜ |
-| F9-T2 | Implement `_drawChicken(ctx, x, y, scale)` — teardrop body + beak + shadow | F6-T1 | No | S | ⬜ |
-| F9-T3 | Implement `_drawPig(ctx, x, y, scale)` — pink oval + snout + shadow | F6-T1 | No | S | ⬜ |
-| F9-T4 | Implement `_drawAnimalPen(ctx, x, y, w, h)` — fenced rect (4 sides, simple line segments) | F6-T1 | No | S | ⬜ |
+| F9-T1 | Implement `_drawCow(ctx, x, y, scale)` — oval + horn stubs + patches + shadow | F6-T1 | No | M | ✅ |
+| F9-T2 | Implement `_drawChicken(ctx, x, y, scale)` — teardrop body + beak + shadow | F6-T1 | No | S | ✅ |
+| F9-T3 | Implement `_drawPig(ctx, x, y, scale)` — pink oval + snout + shadow | F6-T1 | No | S | ✅ |
+| F9-T4 | Implement `_drawAnimalPen(ctx, x, y, w, h)` — fenced rect (4 sides, simple line segments) | F6-T1 | No | S | ✅ |
 | F9-T5 | Place pen near barn; populate with 1–3 cows + 2–4 pigs inside; 1–2 loose animals outside | F9-T1, F9-T3, F9-T4 | No | S | ⬜ |
 | F9-T6 | Implement `_drawCoop(ctx, x, y)` — small rect, dark red roof | F6-T1 | No | S | ⬜ |
 | F9-T7 | Place chicken flock (4–8) near coop | F9-T2, F9-T6 | No | S | ⬜ |
-| F9-T8 | Implement `_drawPond(ctx, x, y, rx, ry)` — irregular blue polygon | F6-T1 | No | S | ⬜ |
+| F9-T8 | Implement `_drawPond(ctx, x, y, rx, ry)` — irregular blue polygon | F6-T1 | No | S | ✅ |
 | F9-T9 | Barn refresh: add hay bale dot + door mark to existing barn drawing | None | No | S | ✅ |
 
 **Tests Required:**
@@ -449,23 +449,23 @@ F9-T9 (barn refresh) ───────────────────�
 | F5-T1 | Session 1 screenshots | MC-1 | (done) | ✅ |
 | F5-T2 | Session 1 human gate | F5-T1 | (done) | ✅ |
 | **F6-T1** | `_safeZones()` helper | None | F6-T2, F7-T1, F8-T1, F9-T1–T4, F9-T8 | ✅ |
-| **F6-T2** | Refactor placement to use zones + guard | F6-T1 | F6-T3 | ⬜ |
+| **F6-T2** | Refactor placement to use zones + guard | F6-T1 | F6-T3 | ✅ |
 | **F6-T3** | Automated overlap assertion test card | F6-T2 | MC-2 | ⬜ |
 | **F7-T1** | V-area cluster grid recalc (align to dark ground) | None | F7-T2 | ✅ |
 | **F7-T2** | Increase cluster count / reduce gaps → solid | F7-T1 | MC-2 | ⬜ |
-| **F8-T1** | `_drawLamppost()` primitive | F6-T1 | F8-T2, F8-T3 | ⬜ |
+| **F8-T1** | `_drawLamppost()` primitive | F6-T1 | F8-T2, F8-T3 | ✅ |
 | **F8-T2** | Road-edge lamppost row | F8-T1 | MC-2 | ⬜ |
 | **F8-T3** | Interior lampposts between houses | F8-T1 | MC-2 | ⬜ |
 | **F8-T4** | Bench + mailbox shapes near houses | F6-T1 | MC-2 | ⬜ |
 | **F8-T5** | Property-line fence segments | F6-T1 | MC-2 | ⬜ |
-| **F9-T1** | `_drawCow()` — oval + horns + patches + shadow | F6-T1 | F9-T5 | ⬜ |
-| **F9-T2** | `_drawChicken()` — teardrop + beak + shadow | F6-T1 | F9-T7 | ⬜ |
-| **F9-T3** | `_drawPig()` — pink oval + snout + shadow | F6-T1 | F9-T5 | ⬜ |
-| **F9-T4** | `_drawAnimalPen()` — fenced rect | F6-T1 | F9-T5 | ⬜ |
+| **F9-T1** | `_drawCow()` — oval + horns + patches + shadow | F6-T1 | F9-T5 | ✅ |
+| **F9-T2** | `_drawChicken()` — teardrop + beak + shadow | F6-T1 | F9-T7 | ✅ |
+| **F9-T3** | `_drawPig()` — pink oval + snout + shadow | F6-T1 | F9-T5 | ✅ |
+| **F9-T4** | `_drawAnimalPen()` — fenced rect | F6-T1 | F9-T5 | ✅ |
 | **F9-T5** | Place pen + animals inside + loose outside | F9-T1, F9-T3, F9-T4 | MC-2 | ⬜ |
 | **F9-T6** | `_drawCoop()` — small rect, dark red roof | F6-T1 | F9-T7 | ⬜ |
 | **F9-T7** | Place chicken flock near coop | F9-T2, F9-T6 | MC-2 | ⬜ |
-| **F9-T8** | `_drawPond()` — irregular blue polygon | F6-T1 | MC-2 | ⬜ |
+| **F9-T8** | `_drawPond()` — irregular blue polygon | F6-T1 | MC-2 | ✅ |
 | **F9-T9** | Barn refresh: hay bale dot + door mark | None | MC-2 | ✅ |
 | **MC-2** | ⊕ All Session 2 features landed; guards green | F6-T3, F7-T2, F8-T2–T5, F9-T5, F9-T7, F9-T8, F9-T9 | F10-T1, F10-T2 | ⬜ |
 | **F10-T1** | Playwright screenshots at 1L, 2L, 3L | MC-2 | F10-T3 | ⬜ |
@@ -580,3 +580,4 @@ All F1–F5 tasks done. Theme, selector, offscreen buffer, houses, trees, pedest
 |------|--------|--------|
 | 2026-03-14 | Initial plan created from DISCOVERY_City_Nature_Background.md (Session 1) | Claude Opus 4.6 |
 | 2026-03-15 | Session 2 enhancement pass: added F6 (road overlap), F7 (V density), F8 (urban props), F9 (animal system), F10 (verification). Marked F1–F5 + MC-1 complete. Updated dependency table, wave structure, risk assessment. | Claude Sonnet 4.6 |
+| 2026-03-15 | Wave 2 complete: F6-T2, F8-T1, F9-T1, F9-T2, F9-T3, F9-T4, F9-T8 marked ✅. Drawing primitives + zone refactor implemented. | Claude Opus 4.6 |
