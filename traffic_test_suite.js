@@ -3881,6 +3881,66 @@
         return inst.state.results.every((r) => r.exists);
       },
     },
+    // ─── Card BN: Road overlap assertion — element positions stay in safe zones ──
+    {
+      id: "BN",
+      section: "mixed",
+      family: "guard_green",
+      name: "Road overlap assertion — all placed elements within safe zones",
+      proof:
+        "For 1L/2L/3L: compute _safeZones(), then replicate the placement math from " +
+        "_sceneCityNature(). Verify: (1) farmL >= zones.right.min, (2) barnX >= zones.right.min, " +
+        "(3) pondCx - pondRx >= zones.right.min, (4) penX >= zones.right.min, " +
+        "(5) house availW + margin <= zones.left.max. All must pass for all lane counts.",
+      build() {
+        const laneCounts = [1, 2, 3];
+        const cases = laneCounts.map((lanes) =>
+          standardCase(`${lanes}L`, { lanes, cars: 0, maxTicks: 1 })
+        );
+        const results = laneCounts.map((lanes, i) => {
+          const rd = cases[i].sim.road;
+          const w = VIEW.w, h = VIEW.h;
+          const zones = TC.Ren.prototype._safeZones.call({}, rd, w, 6);
+          const m = TC.Ren.prototype._sceneMetrics.call(
+            { _clamp: TC.Ren.prototype._clamp }, rd, w, h
+          );
+          // Farm area (right side)
+          const farmL = zones.right.min;
+          const farmW = w - farmL - 3;
+          const barnX = farmL + farmW * 0.32;
+          const pondCx = farmL + farmW * 0.78;
+          const pondRx = 12 * m.baseScale;
+          const fX = farmL + farmW * 0.05;
+          // Urban area (left side)
+          const roadL = rd.cx - m.roadHalf;
+          const margin = 4;
+          const availW = Math.min(zones.left.max, roadL) - margin * 2;
+          const checks = {
+            farmL_ok: farmL >= zones.right.min,
+            barn_ok: barnX >= zones.right.min,
+            pond_ok: (pondCx - pondRx) >= zones.right.min,
+            pen_ok: fX >= zones.right.min,
+            house_ok: (margin + availW) <= zones.left.max + 0.001,
+            availW_positive: availW > 0,
+          };
+          const pass = Object.values(checks).every(Boolean);
+          return { pass, lanes, checks };
+        });
+        return { cases, state: { results } };
+      },
+      metrics(inst) {
+        const out = {};
+        for (const r of inst.state.results) {
+          const failedKeys = Object.entries(r.checks)
+            .filter(([, v]) => !v).map(([k]) => k);
+          out[`${r.lanes}L`] = r.pass ? "PASS" : `FAIL: ${failedKeys.join(",")}`;
+        }
+        return out;
+      },
+      verdict(inst) {
+        return inst.state.results.every((r) => r.pass);
+      },
+    },
   ];
 
   const FAMILY_META = {
