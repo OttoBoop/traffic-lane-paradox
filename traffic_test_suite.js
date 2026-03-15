@@ -3850,6 +3850,37 @@
         return inst.state.results.every((r) => r.pass);
       },
     },
+    // ─── Card BM: Wave 2 drawing primitives existence ──────────────────────
+    {
+      id: "BM",
+      section: "mixed",
+      family: "guard_green",
+      name: "Wave 2 drawing primitives — all 6 new methods exist on Ren.prototype",
+      proof:
+        "Ren.prototype must have _drawCow, _drawChicken, _drawPig, _drawAnimalPen, " +
+        "_drawLamppost, _drawPond — all must be functions.",
+      build() {
+        const methods = [
+          "_drawCow", "_drawChicken", "_drawPig",
+          "_drawAnimalPen", "_drawLamppost", "_drawPond",
+        ];
+        const results = methods.map((name) => ({
+          name,
+          exists: typeof TC.Ren.prototype[name] === "function",
+        }));
+        return { cases: [], state: { results } };
+      },
+      metrics(inst) {
+        const out = {};
+        for (const r of inst.state.results) {
+          out[r.name] = r.exists ? "YES" : "NO";
+        }
+        return out;
+      },
+      verdict(inst) {
+        return inst.state.results.every((r) => r.exists);
+      },
+    },
   ];
 
   const FAMILY_META = {
