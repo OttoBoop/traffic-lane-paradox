@@ -314,7 +314,7 @@ Houses, ground zones, farms, pedestrian paths, fountains, V-area trees — all i
 | F9-T4 | Implement `_drawAnimalPen(ctx, x, y, w, h)` — fenced rect (4 sides, simple line segments) | F6-T1 | No | S | ✅ |
 | F9-T5 | Place pen near barn; populate with 1–3 cows + 2–4 pigs inside; 1–2 loose animals outside | F9-T1, F9-T3, F9-T4 | No | S | ✅ |
 | F9-T6 | Implement `_drawCoop(ctx, x, y)` — small rect, dark red roof | F6-T1 | No | S | ✅ |
-| F9-T7 | Place chicken flock (4–8) near coop | F9-T2, F9-T6 | No | S | ⬜ |
+| F9-T7 | Place chicken flock (4–8) near coop | F9-T2, F9-T6 | No | S | ✅ |
 | F9-T8 | Implement `_drawPond(ctx, x, y, rx, ry)` — irregular blue polygon | F6-T1 | No | S | ✅ |
 | F9-T9 | Barn refresh: add hay bale dot + door mark to existing barn drawing | None | No | S | ✅ |
 
@@ -464,10 +464,10 @@ F9-T9 (barn refresh) ───────────────────�
 | **F9-T4** | `_drawAnimalPen()` — fenced rect | F6-T1 | F9-T5 | ✅ |
 | **F9-T5** | Place pen + animals inside + loose outside | F9-T1, F9-T3, F9-T4 | MC-2 | ✅ |
 | **F9-T6** | `_drawCoop()` — small rect, dark red roof | F6-T1 | F9-T7 | ✅ |
-| **F9-T7** | Place chicken flock near coop | F9-T2, F9-T6 | MC-2 | ⬜ |
+| **F9-T7** | Place chicken flock near coop | F9-T2, F9-T6 | MC-2 | ✅ |
 | **F9-T8** | `_drawPond()` — irregular blue polygon | F6-T1 | MC-2 | ✅ |
 | **F9-T9** | Barn refresh: hay bale dot + door mark | None | MC-2 | ✅ |
-| **MC-2** | ⊕ All Session 2 features landed; guards green | F6-T3, F7-T2, F8-T2–T5, F9-T5, F9-T7, F9-T8, F9-T9 | F10-T1, F10-T2 | ⬜ |
+| **MC-2** | ⊕ All Session 2 features landed; guards green | F6-T3, F7-T2, F8-T2–T5, F9-T5, F9-T7, F9-T8, F9-T9 | F10-T1, F10-T2 | ✅ |
 | **F10-T1** | Playwright screenshots at 1L, 2L, 3L | MC-2 | F10-T3 | ⬜ |
 | **F10-T2** | Run overlap assertion | F6-T3 | F10-T3 | ⬜ |
 | **F10-T3** | Human visual gate — explicit approval | F10-T1, F10-T2 | — | ⬜ |
@@ -583,3 +583,4 @@ All F1–F5 tasks done. Theme, selector, offscreen buffer, houses, trees, pedest
 | 2026-03-15 | Wave 2 complete: F6-T2, F8-T1, F9-T1, F9-T2, F9-T3, F9-T4, F9-T8 marked ✅. Drawing primitives + zone refactor implemented. | Claude Opus 4.6 |
 | 2026-03-15 | Wave 3a complete: F6-T3, F7-T2, F8-T2, F8-T3 marked ✅. Overlap assertion, V-area fillers, lampposts. | Claude Opus 4.6 |
 | 2026-03-15 | Wave 3b complete: F8-T4, F8-T5, F9-T5, F9-T6 marked ✅. Benches, mailboxes, fences, animals, coop. | Claude Opus 4.6 |
+| 2026-03-15 | F9-T7 ✅ (already implemented in 3b), MC-2 ✅ verified — all Session 2 features landed, 7 guards green. | Claude Opus 4.6 |
