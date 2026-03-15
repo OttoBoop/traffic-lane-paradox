@@ -580,7 +580,8 @@
         awakeTicksTotal: 0,
         nearMissLog: [],
         overlapEventLog: [],
-        marginOverlapCount: 0
+        marginOverlapCount: 0,
+        hardOverlapCount: 0
       };
     }
 
@@ -627,23 +628,40 @@
           }
           // Margin-based overlap detection (PROJ_MARGIN = 2px)
           const marginOverlap = satOverlapMargin(a.x, a.y, a.th, b.x, b.y, b.th, PROJ_MARGIN);
+          const zeroMarginOverlap = marginOverlap ? satOverlap(a, b) : false;
           if (marginOverlap) {
-            const zeroMarginOverlap = satOverlap(a, b);
             this.testMetrics.marginOverlapCount++;
-            if (this.testMetrics.overlapEventLog.length < 200) {
-              this.testMetrics.overlapEventLog.push({
-                tick, aId: a.id, bId: b.id,
-                ax: a.x, ay: a.y, ath: a.th,
-                bx: b.x, by: b.y, bth: b.th,
-                gap: dist,
-                margin: PROJ_MARGIN,
-                zeroMarginOverlap,
-                aManeuver: !!(a.maneuvering),
-                bManeuver: !!(b.maneuvering),
-                aSeg: a.seg, bSeg: b.seg,
-                aSpeed: a.speed, bSpeed: b.speed,
-              });
-            }
+          }
+          if (zeroMarginOverlap) {
+            this.testMetrics.hardOverlapCount++;
+          }
+          // Log both margin and zero-margin overlaps, prioritizing hard overlaps
+          if (zeroMarginOverlap && this.testMetrics.overlapEventLog.length < 500) {
+            this.testMetrics.overlapEventLog.push({
+              tick, aId: a.id, bId: b.id,
+              ax: a.x, ay: a.y, ath: a.th,
+              bx: b.x, by: b.y, bth: b.th,
+              gap: dist,
+              margin: 0,
+              zeroMarginOverlap: true,
+              aManeuver: !!(a.maneuvering),
+              bManeuver: !!(b.maneuvering),
+              aSeg: a.seg, bSeg: b.seg,
+              aSpeed: a.speed, bSpeed: b.speed,
+            });
+          } else if (marginOverlap && this.testMetrics.overlapEventLog.length < 500) {
+            this.testMetrics.overlapEventLog.push({
+              tick, aId: a.id, bId: b.id,
+              ax: a.x, ay: a.y, ath: a.th,
+              bx: b.x, by: b.y, bth: b.th,
+              gap: dist,
+              margin: PROJ_MARGIN,
+              zeroMarginOverlap: false,
+              aManeuver: !!(a.maneuvering),
+              bManeuver: !!(b.maneuvering),
+              aSeg: a.seg, bSeg: b.seg,
+              aSpeed: a.speed, bSpeed: b.speed,
+            });
           }
         }
       }
@@ -1242,7 +1260,7 @@
         this.testMetrics.maxBlockedBranchStopTicks = Math.max(this.testMetrics.maxBlockedBranchStopTicks, c._branchStopTicks || 0);
       }
 
-      this._diagnosticOverlapCheck(active, this.ticks);
+      this._diagnosticOverlapCheck(allActive, this.ticks);
 
       for (const c of active) { delete c._pq; delete c._gap; delete c._progress; delete c._progressDelta; delete c._conflictProgress; delete c._targetClearance; }
 
