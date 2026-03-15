@@ -2597,6 +2597,26 @@
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath(); ctx.ellipse(x - rx * 0.25, y - ry * 0.2, rx * 0.2, ry * 0.15, 0, 0, Math.PI * 2); ctx.fill();
     }
+    _drawCoop(ctx, x, y, scale) {
+      const s = scale || 1;
+      const cw = 10 * s, ch = 8 * s;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.fillRect(x + 1.5 * s, y + 1.5 * s, cw, ch);
+      // Coop body — light wood
+      ctx.fillStyle = '#c8a060';
+      ctx.fillRect(x, y, cw, ch);
+      // Roof — dark red stripe across top third
+      ctx.fillStyle = '#8b2020';
+      ctx.fillRect(x - 1 * s, y - 1 * s, cw + 2 * s, ch * 0.38);
+      // Door opening — small dark rect
+      ctx.fillStyle = '#4a3018';
+      ctx.fillRect(x + cw * 0.35, y + ch * 0.5, cw * 0.3, ch * 0.45);
+      // Outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, y, cw, ch);
+    }
     _sceneCityNature(rd, w, h, ctx) {
       const t = this.theme, m = this._sceneMetrics(rd, w, h);
       const rng = Math.random;
@@ -2743,6 +2763,42 @@
       ctx.fillRect(fX, fY, fW, fH);
       this._drawAnimalPen(ctx, fX, fY, fW, fH);
 
+      // ── Animals inside pen (F9-T5) — cows + pigs ──
+      const animalScale = Math.min(1.5, m.baseScale * 1.2);
+      // 1–3 cows inside pen
+      for (let ci = 0; ci < Math.min(3, Math.max(1, Math.round(2.5 * m.baseScale))); ci++) {
+        const cx = fX + fW * 0.2 + rng() * fW * 0.55;
+        const cy = fY + fH * 0.2 + rng() * fH * 0.55;
+        this._drawCow(ctx, cx, cy, animalScale);
+      }
+      // 2–4 pigs inside pen
+      for (let pi = 0; pi < Math.min(4, Math.max(2, Math.round(3 * m.baseScale))); pi++) {
+        const px = fX + fW * 0.15 + rng() * fW * 0.6;
+        const py = fY + fH * 0.25 + rng() * fH * 0.5;
+        this._drawPig(ctx, px, py, animalScale * 0.85);
+      }
+      // 1–2 loose animals just outside pen
+      for (let lo = 0; lo < Math.min(2, Math.round(1.5 * m.baseScale)); lo++) {
+        const lx = fX + fW + 4 + rng() * 10;
+        const ly = fY + rng() * fH;
+        if (lx > w - 6) continue; // don't draw off-canvas
+        if (rng() > 0.5) this._drawCow(ctx, lx, ly, animalScale * 0.9);
+        else this._drawPig(ctx, lx, ly, animalScale * 0.8);
+      }
+
+      // ── Chicken coop + flock (F9-T6 placement) ──
+      const coopX = farmL + farmW * 0.55;
+      const coopY = farmTop + farmH * 0.68;
+      this._drawCoop(ctx, coopX, coopY, m.baseScale);
+      // Chicken flock (4–8) in scatter zone near coop
+      const nChickens = Math.max(4, Math.round(6 * m.baseScale));
+      for (let chi = 0; chi < nChickens; chi++) {
+        const chx = coopX - 8 * m.baseScale + rng() * 20 * m.baseScale;
+        const chy = coopY + 10 * m.baseScale + rng() * 14 * m.baseScale;
+        if (chx > w - 4) continue;
+        this._drawChicken(ctx, chx, chy, m.baseScale * 0.9);
+      }
+
       // ── Houses (left side, below fork only) — clamped to safe zone ──
       const margin = 4;
       const availW = Math.min(zones.left.max, roadL) - margin * 2;
@@ -2797,6 +2853,50 @@
           ctx.fillRect(p.x - yp, p.y - yp, p.tw + yp * 2, p.h + yp * 2);
         }
         this._drawTopDownHouse(ctx, p.x, p.y, p.w, p.h, t, p.ci, p.chim);
+      }
+
+      // ── Benches + mailboxes near houses (F8-T4) ──
+      for (const p of placed) {
+        // ~30% of houses get a bench beside them
+        if (rng() < 0.3) {
+          const bx = p.x + p.w + 2;
+          const by = p.y + p.h * 0.4;
+          if (bx + 4 <= zones.left.max) {
+            ctx.fillStyle = '#8a7a5a'; // gray-brown bench
+            ctx.fillRect(bx, by, 4 * hScale, 2 * hScale);
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 0.4;
+            ctx.strokeRect(bx, by, 4 * hScale, 2 * hScale);
+          }
+        }
+        // ~50% of houses get a mailbox at front edge
+        if (rng() < 0.5) {
+          const mx = p.x + p.w * 0.8;
+          const my = p.y + p.h + 2;
+          if (mx + 2 <= zones.left.max) {
+            ctx.fillStyle = '#2a3a5a'; // dark blue-black mailbox
+            ctx.fillRect(mx, my, 2 * hScale, 2 * hScale);
+          }
+        }
+      }
+
+      // ── Property-line fences between adjacent houses (F8-T5) ──
+      for (let fi = 0; fi < placed.length - 1; fi++) {
+        const a = placed[fi], b = placed[fi + 1];
+        const gap = b.y - (a.y + a.h);
+        if (gap > 0 && gap < 20) {
+          const fenceX = Math.min(a.x, b.x);
+          const fenceEndX = Math.min(fenceX + Math.max(a.w, b.w), zones.left.max);
+          const fenceY = a.y + a.h + gap * 0.5;
+          ctx.strokeStyle = '#8b6b3a'; // wooden brown
+          ctx.lineWidth = 0.8;
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath();
+          ctx.moveTo(fenceX, fenceY);
+          ctx.lineTo(fenceEndX, fenceY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
 
       // ── Fountains (decorative details at path intersections) ──
@@ -2919,9 +3019,39 @@
       ctx.quadraticCurveTo(hl, -hw, hl, -hw + R); ctx.lineTo(hl, hw - R); ctx.quadraticCurveTo(hl, hw, hl - R, hw);
       ctx.lineTo(-hl + R, hw); ctx.quadraticCurveTo(-hl, hw, -hl, hw - R); ctx.lineTo(-hl, -hw + R);
       ctx.quadraticCurveTo(-hl, -hw, -hl + R, -hw); ctx.closePath(); ctx.fillStyle = car.color; ctx.fill();
-      if (car.zoneYielding) { ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 0.8; ctx.stroke(); }
-      if (car.maneuvering) { ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 1; ctx.stroke(); }
-      if (car.reversing) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.8; ctx.stroke(); }
+      // ── Visual state indicators (only when sim running) ──
+      if (this.sim.started) {
+        const tm = car.trafficMode;
+        // Maneuver tint overlay (highest urgency — drawn first so border goes on top)
+        if (tm === 'maneuver' || car.maneuvering) {
+          ctx.fillStyle = 'rgba(255,50,0,0.12)'; ctx.fillRect(-hl, -hw, CAR_L, CAR_W);
+        }
+        // Mode border strokes
+        if (tm === 'maneuver' || car.maneuvering) {
+          ctx.setLineDash([3, 2]); ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+        }
+        if (tm === 'yield' || car.zoneYielding) {
+          ctx.setLineDash([]); ctx.strokeStyle = '#ddaa44'; ctx.lineWidth = 1.0; ctx.stroke();
+        }
+        if (tm === 'hold_exit') {
+          ctx.setLineDash([1.5, 1.5]); ctx.strokeStyle = '#55bb77'; ctx.lineWidth = 0.7; ctx.stroke(); ctx.setLineDash([]);
+        }
+        if (tm === 'batch') {
+          ctx.setLineDash([]); ctx.strokeStyle = '#55bb77'; ctx.lineWidth = 0.7; ctx.stroke();
+        }
+        // Directional arrow for batch/hold_exit
+        if (tm === 'batch' || tm === 'hold_exit') {
+          const arrowDir = car.target === 'left' ? -1 : 1;
+          const ax = hl - 1; // near front of car
+          const ay = arrowDir * (hw + 2); // offset to left or right side
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(ax - 1.5, ay + arrowDir * 2.5);
+          ctx.lineTo(ax + 1.5, ay + arrowDir * 2.5);
+          ctx.closePath();
+          ctx.fillStyle = '#55bb77'; ctx.fill();
+        }
+      }
       if (car.blinker !== 0) {
         ctx.fillStyle = '#ffaa00'; ctx.globalAlpha = alpha * (0.5 + 0.5 * Math.sin(Date.now() / 150));
         if (car.blinker < 0) ctx.fillRect(-hl, -hw - 1, 3, 1); else ctx.fillRect(-hl, hw, 3, 1);
