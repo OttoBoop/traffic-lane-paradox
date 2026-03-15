@@ -2107,6 +2107,18 @@
       }
     }
     _clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    // Returns safe placement bands that exclude the road surface (+margin on each side).
+    // left.max  = left edge of road minus margin (elements must stay left of this)
+    // right.min = right edge of road plus margin (elements must stay right of this)
+    _safeZones(rd, w, margin) {
+      const mg = (margin !== undefined) ? margin : 6;
+      const roadL = rd.cx - rd.halfW();
+      const roadR = rd.cx + rd.halfW();
+      return {
+        left:  { min: 0, max: roadL - mg },
+        right: { min: roadR + mg, max: w },
+      };
+    }
     _sceneMetrics(rd, w, h) {
       const roadHalf = rd.halfW();
       const branchSpread = Math.abs(rd.rEnd.x - rd.lEnd.x);
@@ -2442,6 +2454,15 @@
       ctx.moveTo(x + bw * 0.8, y + bh * 0.2);
       ctx.lineTo(x + bw * 0.2, y + bh * 0.8);
       ctx.stroke();
+      // Hay bale — small golden rectangle in lower-left corner
+      ctx.fillStyle = '#d4a830';
+      ctx.fillRect(x + bw * 0.08, y + bh * 0.62, bw * 0.22, bh * 0.22);
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x + bw * 0.08, y + bh * 0.62, bw * 0.22, bh * 0.22);
+      // Door mark — thin darker rect on bottom wall (south-facing entrance)
+      ctx.fillStyle = t.barnWall || '#7a3b1e';
+      ctx.fillRect(x + bw * 0.38, y + bh * 0.78, bw * 0.24, bh * 0.18);
     }
     _sceneCityNature(rd, w, h, ctx) {
       const t = this.theme, m = this._sceneMetrics(rd, w, h);
@@ -2471,16 +2492,24 @@
       for (let i = rightInner.length - 1; i >= 0; i--) ctx.lineTo(rightInner[i].x, rightInner[i].y);
       ctx.closePath();
       ctx.fill();
-      // Tree clusters on dark fill — lighter greens for contrast
+      // V-area: packed solid canopy — grid of clusters from fork (bottom) to top of wedge
+      // Aligned to the forestDark ground zone above.
       const vCx = m.wedgeCenterX;
-      const vCy = (m.topWedgeY + rd.forkY) * 0.5;
-      const vRx = Math.max(18, m.wedgeWidth * 0.45);
-      const vRy = Math.max(16, (rd.forkY - m.topWedgeY) * 0.45);
-      const vN = Math.round(40 * m.baseScale);
-      this._treeCluster(vCx, vCy, vRx, vRy, vN, t.forestAlt, t.grassLight);
-      this._treeCluster(vCx, vCy - vRy * 0.3, vRx * 0.7, vRy * 0.5, Math.round(vN * 0.5), t.forest, t.forestAlt);
-      this._treeCluster(vCx, rd.forkY - 6, vRx * 0.45, 6, Math.round(vN * 0.35), t.forestAlt, t.forest);
-      this._treeCluster(vCx, m.topWedgeY + 10, vRx * 0.4, 10, Math.round(vN * 0.3), t.forest, t.grassLight);
+      const vH = rd.forkY - m.topWedgeY;                 // total height of V zone
+      const vRxFull = Math.max(22, m.wedgeWidth * 0.52);  // full half-width at base
+      const vN = Math.round(72 * m.baseScale);            // base count per cluster
+      // Horizontal slice rows (bottom-to-top) — each row narrower as wedge tapers
+      this._treeCluster(vCx, rd.forkY - vH * 0.08, vRxFull * 0.88, vH * 0.13, Math.round(vN * 0.80), t.forestAlt, t.forest);
+      this._treeCluster(vCx, rd.forkY - vH * 0.25, vRxFull * 0.75, vH * 0.16, Math.round(vN * 0.75), t.forest, t.forestAlt);
+      this._treeCluster(vCx, rd.forkY - vH * 0.42, vRxFull * 0.60, vH * 0.16, Math.round(vN * 0.65), t.forestAlt, t.grassLight);
+      this._treeCluster(vCx, rd.forkY - vH * 0.58, vRxFull * 0.46, vH * 0.14, Math.round(vN * 0.55), t.forest, t.forestAlt);
+      this._treeCluster(vCx, rd.forkY - vH * 0.74, vRxFull * 0.33, vH * 0.13, Math.round(vN * 0.42), t.forestAlt, t.forest);
+      this._treeCluster(vCx, m.topWedgeY + vH * 0.08, vRxFull * 0.22, vH * 0.11, Math.round(vN * 0.32), t.forest, t.grassLight);
+      // Lateral filler clusters to plug gaps at mid-height
+      this._treeCluster(vCx - vRxFull * 0.32, rd.forkY - vH * 0.33, vRxFull * 0.30, vH * 0.18, Math.round(vN * 0.42), t.forest, t.forestAlt);
+      this._treeCluster(vCx + vRxFull * 0.32, rd.forkY - vH * 0.33, vRxFull * 0.30, vH * 0.18, Math.round(vN * 0.42), t.forestAlt, t.forest);
+      this._treeCluster(vCx - vRxFull * 0.26, rd.forkY - vH * 0.55, vRxFull * 0.24, vH * 0.16, Math.round(vN * 0.35), t.forest, t.grassLight);
+      this._treeCluster(vCx + vRxFull * 0.26, rd.forkY - vH * 0.55, vRxFull * 0.24, vH * 0.16, Math.round(vN * 0.35), t.grassLight, t.forest);
 
       // ── Upper area: forest on BOTH sides of road ──────
       // Left-upper forest (above fork, left of road)
