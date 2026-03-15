@@ -20,7 +20,12 @@ The simulation is a single HTML file (`traffic_v18.html`) backed by a shared sim
 
 **Sim** runs the simulation tick loop. Each tick executes an ordered series of steps including lane detection, batch scheduler updates, traffic mode assignment, blocker classification and maneuver entry/exit logic, Stanley controller steering, IDM following distance, cone detection, wall avoidance, maneuver wobble overrides, branch speed floor, and finally the cost-based legal move selector that integrates the bicycle model. Step ordering matters — later steps override earlier ones.
 
-**Ren** renders to an HTML5 canvas in two themes: `classic` (dark road on dark background) and `rioSatellite` (colorful aerial map style). The rendered car shape and the SAT collision rectangle share the same constants — what the user sees is what collides.
+**Ren** renders to an HTML5 canvas in three themes selectable via a dropdown in the UI:
+- `classic` — dark road on dark background (utilitarian)
+- `rioSatellite` — colorful aerial map style with Rio-inspired landmarks (church, island, mountains)
+- `cityNature` — isometric houses on the left (urban), farm fields + barn + pond on the right, dense forest in the V-area between branches
+
+Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch and stamped per frame via `drawImage()`, avoiding per-frame overhead. The rendered car shape and the SAT collision rectangle share the same constants — what the user sees is what collides.
 
 ### Key Design Principles
 
@@ -144,6 +149,13 @@ node run_traffic_suite.js --id S --id X --id AA
 | `red_visual_tests.html` | Browser visual regression dashboard (consumes `traffic_test_suite.js`) |
 | `v18_plan.md` | Full design history: resolved decisions, execution order, hitbox spec, maneuvering spec, v19/v20 divergence analysis. **Primary reference for architecture decisions.** |
 | `docs/DISCOVERY_Maneuver_Mode_Fix.md` | Root cause analysis of the maneuver trigger bug and fix approach |
+| `docs/DISCOVERY_City_Nature_Background.md` | Discovery doc for the City & Nature visual theme (Leo Bloise's design) |
+| `docs/PLAN_City_Nature_Background.md` | Implementation plan for the City & Nature theme |
+| `docs/IDEAS_City_Nature_Background.md` | Deferred ideas from the City & Nature discovery (animated elements, more themes) |
+| `docs/DISCOVERY_Maneuver_Conflict_Overhaul.md` | Discovery for maneuver & conflict logic overhaul + performance extension |
+| `docs/PLAN_Maneuver_Conflict_Overhaul.md` | Implementation plan for maneuver/conflict fixes + performance optimizations |
+| `docs/DISCOVERY_Traffic_Rio_Satellite_Visual_Restyle.md` | Discovery for the Rio satellite scenic theme |
+| `docs/PLAN_Traffic_Rio_Satellite_Visual_Restyle.md` | Plan for the Rio satellite restyle |
 | `verify_fork_width_wall_sync.js` | Geometry helper for fork-width wall synchronization |
 
 ---
