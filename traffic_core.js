@@ -2644,6 +2644,11 @@
       this._treeCluster(vCx + vRxFull * 0.32, rd.forkY - vH * 0.33, vRxFull * 0.30, vH * 0.18, Math.round(vN * 0.42), t.forestAlt, t.forest);
       this._treeCluster(vCx - vRxFull * 0.26, rd.forkY - vH * 0.55, vRxFull * 0.24, vH * 0.16, Math.round(vN * 0.35), t.forest, t.grassLight);
       this._treeCluster(vCx + vRxFull * 0.26, rd.forkY - vH * 0.55, vRxFull * 0.24, vH * 0.16, Math.round(vN * 0.35), t.grassLight, t.forest);
+      // Edge-hugging fillers — close remaining gaps near branch inner edges (F7-T2)
+      this._treeCluster(vCx - vRxFull * 0.55, rd.forkY - vH * 0.15, vRxFull * 0.22, vH * 0.12, Math.round(vN * 0.30), t.forest, t.forestAlt);
+      this._treeCluster(vCx + vRxFull * 0.55, rd.forkY - vH * 0.15, vRxFull * 0.22, vH * 0.12, Math.round(vN * 0.30), t.forestAlt, t.forest);
+      this._treeCluster(vCx - vRxFull * 0.42, rd.forkY - vH * 0.45, vRxFull * 0.20, vH * 0.14, Math.round(vN * 0.28), t.forestAlt, t.grassLight);
+      this._treeCluster(vCx + vRxFull * 0.42, rd.forkY - vH * 0.45, vRxFull * 0.20, vH * 0.14, Math.round(vN * 0.28), t.grassLight, t.forestAlt);
 
       // ── Upper area: forest on BOTH sides of road ──────
       // Left-upper forest (above fork, left of road)
@@ -2821,6 +2826,31 @@
         ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = rng() > 0.4 ? t.forest : t.forestAlt;
         ctx.beginPath(); ctx.arc(tx, ty, tr, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // ── Road-edge lampposts (F8-T2) — evenly spaced along left road boundary ──
+      const lampSpacing = 24;
+      const lampX = zones.left.max - 2; // just inside left safe zone, adjacent to road
+      for (let ly = urbanTop + 8; ly < urbanBot - 8; ly += lampSpacing) {
+        this._drawLamppost(ctx, lampX, ly, hScale);
+      }
+
+      // ── Interior lampposts (F8-T3) — scattered between house clusters ──
+      const nInteriorTarget = Math.max(3, Math.round(6 * hScale));
+      let interiorPlaced = 0;
+      for (let li = 0; li < nInteriorTarget * 4 && interiorPlaced < nInteriorTarget; li++) {
+        const lx = margin + 8 + rng() * Math.max(4, availW - 16);
+        const ly = urbanTop + 10 + rng() * (urbanH - 20);
+        if (lx > zones.left.max - 6) continue; // zone guard
+        // Min distance 12px from any house
+        let tooClose = false;
+        for (const p of placed) {
+          const dx = lx - (p.x + p.w / 2), dy = ly - (p.y + p.h / 2);
+          if (Math.abs(dx) < p.w / 2 + 12 && Math.abs(dy) < p.h / 2 + 12) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
+        this._drawLamppost(ctx, lx, ly, hScale * 0.85);
+        interiorPlaced++;
       }
     }
     _road(rd, h) {
