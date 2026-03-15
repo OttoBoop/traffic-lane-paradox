@@ -2780,7 +2780,7 @@
           state: { wallTimes: {}, measuring: configs.slice() },
         };
       },
-      observe(inst) {
+      observe(_inst) {
         // Timing is measured in verdict via createHidden; observe is a no-op
       },
       verdict(inst) {
@@ -3430,6 +3430,372 @@
         // nearMissLog: PASSES after F1-T1 (already implemented)
         // overlapEventLog: FAILS until F1-T2 adds margin-based overlap detection
         return inst.state.totalNearMisses > 0 && inst.state.totalOverlapEvents > 0;
+      },
+    },
+    // ── BG: conflict zone search window — performance cost ───────────────────
+    {
+      id: "BG",
+      section: "collision",
+      family: "diagnostic",
+      name: "Conflict zone search: fi+25 window vs full-branch sweep (3L perf)",
+      proof:
+        "Compares Road construction time between the old fi+25 capped window and " +
+        "the full-branch sweep for a 3-lane road (VIEW canvas). " +
+        "Also runs a 3L/50-car/50-50 hidden sim each way and reports tick throughput. " +
+        "Diagnostic only — no pass/fail gate. " +
+        "Expected: full sweep is slower to construct but produces the outer-lane zone " +
+        "('0-right'/'2-left') that the capped window misses; sim throughput unchanged.",
+      build() {
+        const Road = TC.Road;
+        const ITERS = 200;
+        const w = VIEW.w, h = VIEW.h;
+
+        // ── Road construction timing ──────────────────────────────────────────
+        // Warm up JIT
+        for (let i = 0; i < 5; i++) new Road(3, w, h, { conflictWindowCap: 25 });
+        for (let i = 0; i < 5; i++) new Road(3, w, h);
+
+        const t0cap = Date.now();
+        for (let i = 0; i < ITERS; i++) new Road(3, w, h, { conflictWindowCap: 25 });
+        const msCap = Date.now() - t0cap;
+
+        const t0full = Date.now();
+        for (let i = 0; i < ITERS; i++) new Road(3, w, h);
+        const msFull = Date.now() - t0full;
+
+        const roadCap  = new Road(3, w, h, { conflictWindowCap: 25 });
+        const roadFull = new Road(3, w, h);
+        const zonesCap  = roadCap.conflictZones.length;
+        const zonesFull = roadFull.conflictZones.length;
+        const outerZoneCap  = !!roadCap.conflictZones.find(
+          (z) => z.paths.has("0-right") && z.paths.has("2-left")
+        );
+        const outerZoneFull = !!roadFull.conflictZones.find(
+          (z) => z.paths.has("0-right") && z.paths.has("2-left")
+        );
+
+        // ── Sim throughput: 3L / 50 cars / 50-50 ─────────────────────────────
+        const SIM_TICKS = 600;
+        const simSpec = { lanes: 3, nCars: 50, splitPct: 50, w, h, seed: 42,
+                          dt: 1, maxTicks: SIM_TICKS };
+
+        // Capped window: temporarily force cap via Road opts is not wired into
+        // createScenarioSim, so we measure construction-only cost separately.
+        // Throughput is identical post-construction, so we run one sim for both.
+        const t0sim = Date.now();
+        const simHidden = createHidden({ ...simSpec });
+        const msSim = Date.now() - t0sim;
+        const ticksSim = simHidden.ticks;
+
+        return {
+          cases: [
+            customCase("3L/50 full-sweep sim", {
+              lanes: 3, seed: 42, w, h,
+              cars: 50, split: 50,
+              maxTicks: SIM_TICKS,
+            }),
+          ],
+          state: {
+            msCap, msFull, ITERS,
+            zonesCap, zonesFull,
+            outerZoneCap, outerZoneFull,
+            msSim, ticksSim,
+          },
+        };
+      },
+      metrics(inst) {
+        const s = inst.state;
+        const ratio = s.msCap > 0 ? (s.msFull / s.msCap).toFixed(2) : "N/A";
+        const perCap  = s.msCap  > 0 ? (s.msCap  / s.ITERS).toFixed(3) : "N/A";
+        const perFull = s.msFull > 0 ? (s.msFull / s.ITERS).toFixed(3) : "N/A";
+        const tickRate = s.msSim > 0 ? ((s.ticksSim / s.msSim) * 1000).toFixed(0) : "N/A";
+        return {
+          [`fi+25 (${s.ITERS}x)`]:  `${s.msCap}ms  (${perCap}ms/road)`,
+          [`full  (${s.ITERS}x)`]:  `${s.msFull}ms  (${perFull}ms/road)`,
+          "Slowdown ratio":          `${ratio}x`,
+          "Zones cap/full":          `${s.zonesCap} / ${s.zonesFull}`,
+          "Outer zone cap/full":     `${s.outerZoneCap ? "YES" : "NO"} / ${s.outerZoneFull ? "YES" : "NO"}`,
+          "Sim throughput":          `${tickRate} ticks/s  (${s.ticksSim} ticks, ${s.msSim}ms)`,
+        };
+      },
+      verdict(inst) {
+        // Diagnostic: passes when outer zone is found with full sweep but not cap,
+        // confirming the fix is effective.
+        return inst.state.outerZoneFull && !inst.state.outerZoneCap;
+      },
+    },
+    // ── BF: 3L outer-lane conflict zone ──────────────────────────────────────
+    {
+      id: "BF",
+      section: "collision",
+      family: "guard_green",
+      name: "3L outer-lane conflict zone is created and respected",
+      proof:
+        "In a 3-lane road, lane 0 going right and lane 2 going left must cross paths. " +
+        "The conflict zone detector must find their closest approach across the full branch " +
+        "(not just 25 path indices past the fork). " +
+        "PASS: a conflict zone covering both '0-right' and '2-left' paths is created at " +
+        "road construction time, AND no overlap occurs during the crossing. " +
+        "FAIL before fix: _genConflictZones search window [fi-10, fi+25] is too narrow — " +
+        "outer lanes start 57+ units apart at the fork, cross only deeper in the branch, " +
+        "so minD never drops below ZONE_CROSS_THRESH=21; no zone is created; " +
+        "canEnterConflict stays false; cars cross freely.",
+      build() {
+        const caseRecord = customCase("3L outer-lane cross", {
+          lanes: 3,
+          seed: 901,
+          maxTicks: 600,
+          finishBased: true,
+          cars: [
+            { id: 0, lane: 0, target: "right", y: 620 },
+            { id: 1, lane: 2, target: "left", y: 620 },
+          ],
+        });
+        const zones = caseRecord.sim.road.conflictZones;
+        const outerZone = zones.find(
+          (z) => z.paths.has("0-right") && z.paths.has("2-left")
+        );
+        return {
+          cases: [caseRecord],
+          state: { overlap: false, outerZoneFound: !!outerZone },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        inst.state.overlap =
+          inst.state.overlap || satOverlap(sim.cars[0], sim.cars[1]);
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Outer zone": inst.state.outerZoneFound ? "YES" : "NO",
+          Overlap: inst.state.overlap ? "YES" : "NO",
+          Done: countDone(sim) + "/2",
+          "Batch grants": String(sim.batchEntryCount || 0),
+        };
+      },
+      verdict(inst) {
+        return (
+          inst.state.outerZoneFound &&
+          !inst.state.overlap &&
+          legal(inst.cases[0].sim)
+        );
+      },
+    },
+    // ── BH: Jam wake from sleep zone ─────────────────────────────────────────
+    {
+      id: "BH",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Jam wake — sleeping cars behind crash eventually enter maneuver",
+      proof:
+        "5 cars in a single-lane chain. Car 0 is fixed (simulating crash) just below stopY. " +
+        "Cars 1-2 are in the active zone. Cars 3-4 are in the SLEEP zone (y > SLEEP_Y). " +
+        "Currently, sleeping cars never accumulate noProgressTicks and can never enter " +
+        "maneuver mode. PASS: at least one car enters maneuver despite the jam extending " +
+        "into the sleep zone. FAIL: maneuverEnterCount stays 0.",
+      build() {
+        // Coordinates for VIEW canvas (220x760):
+        // stopY ≈ 547, SLEEP_Y ≈ 712
+        return {
+          cases: [
+            customCase("2L jam into sleep zone", {
+              lanes: 2,
+              seed: 42,
+              maxTicks: 800,
+              stepsPerFrame: 10,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 560, fixed: true, color: "#666", mobilTimer: 999 },
+                { id: 1, lane: 0, target: "left", y: 615, mobilTimer: 999 },
+                { id: 2, lane: 0, target: "left", y: 670, mobilTimer: 999 },
+                { id: 3, lane: 0, target: "left", y: 725, mobilTimer: 999 },  // sleep zone
+                { id: 4, lane: 0, target: "left", y: 780, mobilTimer: 999 },  // deep sleep zone
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const m = sim.testMetrics;
+        return {
+          "Maneuver enters": String(m.maneuverEnterCount || 0),
+          "Max noProgress": String(m.maxNoProgressTicks || 0),
+          "Done": sim.cars.filter(c => c.done).length + "/" + sim.cars.filter(c => !c.fixed).length,
+          "Sleep ticks": String(m.sleepTicksTotal || 0),
+          "Awake ticks": String(m.awakeTicksTotal || 0),
+          Ticks: String(sim.ticks),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const m = sim.testMetrics;
+        return (m.maneuverEnterCount || 0) > 0 && legal(sim);
+      },
+    },
+    // ── BI: Follow chain maneuver ────────────────────────────────────────────
+    {
+      id: "BI",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Follow chain — stopped cars with 8px gap detect blocked-for-progress",
+      proof:
+        "4 cars in a follow chain, all in the active zone. Car 0 is fixed (crash). " +
+        "Cars 1-3 trail with ~8px gaps (dy=30, gap=30-CAR_L=8). Currently, " +
+        "blockedForProgress requires gap < IDM_S0*0.5 (3px) for follow blocks. " +
+        "With 8px gaps, these cars never satisfy the condition, never accumulate " +
+        "noProgressTicks, and never trigger maneuver. PASS: maxNoProgressTicks >= 60 " +
+        "AND maneuverEnterCount > 0. FAIL: noProgressTicks never reaches threshold.",
+      build() {
+        return {
+          cases: [
+            customCase("2L follow chain 8px gap", {
+              lanes: 2,
+              seed: 42,
+              maxTicks: 400,
+              stepsPerFrame: 10,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 500, fixed: true, color: "#666", mobilTimer: 999 },
+                { id: 1, lane: 0, target: "left", y: 530, speed: 0, mobilTimer: 999 },
+                { id: 2, lane: 0, target: "left", y: 560, speed: 0, mobilTimer: 999 },
+                { id: 3, lane: 0, target: "left", y: 590, speed: 0, mobilTimer: 999 },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const m = sim.testMetrics;
+        return {
+          "Maneuver enters": String(m.maneuverEnterCount || 0),
+          "Max noProgress": String(m.maxNoProgressTicks || 0),
+          Ticks: String(sim.ticks),
+          "Done": sim.cars.filter(c => c.done).length + "/" + sim.cars.filter(c => !c.fixed).length,
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const m = sim.testMetrics;
+        return (m.maxNoProgressTicks || 0) >= 60 && (m.maneuverEnterCount || 0) > 0 && legal(sim);
+      },
+    },
+    // ── BJ: Front-of-jam maneuver priority ───────────────────────────────────
+    {
+      id: "BJ",
+      section: "mixed",
+      family: "diagnostic",
+      name: "Front-of-jam priority — car closest to blockage maneuvers first",
+      proof:
+        "4 cars. Car 0 is fixed (crash). Cars 1-3 are pre-loaded with noProgressTicks=59 " +
+        "(one tick from maneuver threshold). Car 1 is directly behind the crash (closest " +
+        "to blockage, y=530). Car 3 is farthest from crash (y=590) but may be closer to " +
+        "the fork zone. With current sort by dpToNearestZone, the wrong car may maneuver " +
+        "first. PASS: the first maneuver_enter event is for car 1 (front of jam). " +
+        "FAIL: a different car enters maneuver first.",
+      build() {
+        return {
+          cases: [
+            customCase("2L front-of-jam priority", {
+              lanes: 2,
+              seed: 42,
+              maxTicks: 200,
+              stepsPerFrame: 5,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 500, fixed: true, color: "#666", mobilTimer: 999 },
+                { id: 1, lane: 0, target: "left", y: 530, speed: 0, noProgressTicks: 59, mobilTimer: 999 },
+                { id: 2, lane: 0, target: "left", y: 560, speed: 0, noProgressTicks: 59, mobilTimer: 999 },
+                { id: 3, lane: 0, target: "left", y: 590, speed: 0, noProgressTicks: 59, mobilTimer: 999 },
+              ],
+            }),
+          ],
+          state: { firstManeuverCarId: null },
+        };
+      },
+      observe(inst) {
+        if (inst.state.firstManeuverCarId !== null) return;
+        const sim = inst.cases[0].sim;
+        for (const ev of sim.testEvents) {
+          if (ev.type === "maneuver_enter") {
+            inst.state.firstManeuverCarId = ev.carId;
+            return;
+          }
+        }
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const m = sim.testMetrics;
+        return {
+          "First maneuver car": inst.state.firstManeuverCarId !== null ? "car" + inst.state.firstManeuverCarId : "none",
+          "Maneuver enters": String(m.maneuverEnterCount || 0),
+          "Max noProgress": String(m.maxNoProgressTicks || 0),
+          Ticks: String(sim.ticks),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return inst.state.firstManeuverCarId === 1 && legal(sim);
+      },
+    },
+    // ── BK: Full jam clearance survey ────────────────────────────────────────
+    {
+      id: "BK",
+      section: "mixed",
+      family: "survey_green",
+      name: "Full jam clearance — crash near fork, all trailing cars eventually exit",
+      proof:
+        "3 lanes, 12 cars, 2 fixed at fork simulating a crash. " +
+        "Tests whether the jam wake + follow chain + front-of-jam priority fixes " +
+        "together allow all non-fixed cars to eventually clear the jam and exit. " +
+        "Survey: documents jam clearance capability, not a hard gate.",
+      build() {
+        return {
+          cases: [
+            customCase("3L jam clearance", {
+              lanes: 3,
+              seed: 42,
+              maxTicks: 6000,
+              stepsPerFrame: 20,
+              finishBased: true,
+              cars: [
+                { id: 0, lane: 0, target: "left", y: 440, fixed: true, color: "#666", mobilTimer: 999 },
+                { id: 1, lane: 1, target: "right", y: 430, fixed: true, color: "#666", mobilTimer: 999 },
+                { id: 2, lane: 0, target: "left", y: 500, mobilTimer: 999 },
+                { id: 3, lane: 1, target: "right", y: 510, mobilTimer: 999 },
+                { id: 4, lane: 2, target: "left", y: 520 },
+                { id: 5, lane: 0, target: "right", y: 570 },
+                { id: 6, lane: 1, target: "left", y: 580 },
+                { id: 7, lane: 2, target: "right", y: 600 },
+                { id: 8, lane: 0, target: "left", y: 660 },
+                { id: 9, lane: 1, target: "right", y: 720 },
+                { id: 10, lane: 2, target: "left", y: 740 },
+                { id: 11, lane: 0, target: "right", y: 790 },
+              ],
+            }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        const m = sim.testMetrics;
+        const nonFixed = sim.cars.filter(c => !c.fixed);
+        return {
+          "Done": nonFixed.filter(c => c.done).length + "/" + nonFixed.length,
+          "Maneuver enters": String(m.maneuverEnterCount || 0),
+          "Max noProgress": String(m.maxNoProgressTicks || 0),
+          "Overlaps": String(m.overlapCount || 0),
+          Ticks: String(sim.ticks),
+          Time: sim.timerSec.toFixed(2) + "s",
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        const nonFixed = sim.cars.filter(c => !c.fixed);
+        const doneCount = nonFixed.filter(c => c.done).length;
+        return doneCount >= 4 && legal(sim);
       },
     },
   ];

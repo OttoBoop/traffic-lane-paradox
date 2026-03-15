@@ -35,6 +35,7 @@
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
   const MAX_ACTIVE_MANEUVERS = 8;
+  const SLEEP_STUCK_WAKE_THRESH = 30;
   const EARLY_EXIT_SCORE = 0.9;
   const YIELD_FULL_PLANNER_DIST = 60;
   const HARD_FOLLOW_GAP = Math.max(IDM_S0, 4);
@@ -271,8 +272,9 @@
   }
 
   class Road {
-    constructor(n, w, h) {
+    constructor(n, w, h, opts) {
       this.n = n; this.w = w; this.h = h; this.cx = w / 2;
+      this._conflictWindowCap = (opts && opts.conflictWindowCap != null) ? opts.conflictWindowCap : null;
       this.baseLw = n === 1 ? SINGLE_LANE_BASE_LW : Math.max(22, Math.min(26, (w * 0.92) / Math.max(n, 1)));
       this.mainLw = this.baseLw * MAIN_LANE_SCALE;
       this.branchLw = this.baseLw * BRANCH_LANE_SCALE;
@@ -414,7 +416,10 @@
           if (lA === lB || bA === bB) continue;
           const pA = this.fullPaths[kA], pB = this.fullPaths[kB];
           const fi = Math.floor((this.entryY - this.forkY) / PATH_SP);
-          const s0 = Math.max(0, fi - 10), s1 = Math.min(Math.min(pA.length, pB.length) - 1, fi + 25);
+          const s0 = Math.max(0, fi - 10);
+          const s1 = this._conflictWindowCap != null
+            ? Math.min(Math.min(pA.length, pB.length) - 1, fi + this._conflictWindowCap)
+            : Math.min(pA.length, pB.length) - 1;
           let minD = 1e9, bIA = 0, bIB = 0;
           for (let ia = s0; ia <= s1; ia++)for (let ib = s0; ib <= s1; ib++) {
             const d = Math.hypot(pA[ia].x - pB[ib].x, pA[ia].y - pB[ib].y); if (d < minD) { minD = d; bIA = ia; bIB = ib; }
@@ -733,6 +738,9 @@
         c.steer = 0; c.desSpd = c.speed; c.desSt = 0;
         this._commitPose(c, c.x + c.speed * dt * Math.cos(c.th), c.y + c.speed * dt * Math.sin(c.th), c.th, rd, allActive);
         c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th);
+        // Track how long a sleeping car has been near-zero speed (jam wave wake)
+        if (c.speed < 0.05) c._sleepStuckTicks = (c._sleepStuckTicks || 0) + dt;
+        else c._sleepStuckTicks = 0;
       }
     }
 
@@ -742,11 +750,25 @@
       const rd = this.road;
       const allActive = this.cars.filter(c => !c.done);
       // P8: Off-screen car sleep — cars far from the stop line skip the full pipeline
+      // Jam wave wake: sleeping cars stuck for SLEEP_STUCK_WAKE_THRESH ticks wake up
+      // if their same-lane leader is awake and stuck (propagates wake front-to-back)
       const SLEEP_Y = rd.stopY + SPAWN_SPACING * 3;
-      const active = [], sleeping = [];
+      const active = [], sleeping = [], sleepCandidates = [];
       for (const c of allActive) {
-        if (c.seg === 'main' && c.y > SLEEP_Y && !c.maneuvering) sleeping.push(c);
-        else active.push(c);
+        if (c.seg === 'main' && c.y > SLEEP_Y && !c.maneuvering) {
+          if ((c._sleepStuckTicks || 0) >= SLEEP_STUCK_WAKE_THRESH) sleepCandidates.push(c);
+          else sleeping.push(c);
+        } else {
+          active.push(c);
+        }
+      }
+      for (const c of sleepCandidates) {
+        const woke = active.some(o =>
+          o.seg === 'main' && o.lane === c.lane && !o.done &&
+          o.speed < 0.1 && o.noProgressTicks >= NO_PROGRESS_THRESH * 0.5 &&
+          o.y < c.y && (c.y - o.y) < SPAWN_SPACING * 1.5
+        );
+        (woke ? active : sleeping).push(c);
       }
       this._tickSleepingCars(sleeping, allActive, dt, P, rd);
       this.testMetrics.sleepTicksTotal += sleeping.length;
@@ -822,9 +844,14 @@
         const yieldNeedsFullPlanner = c.trafficMode === 'yield' && dpToNearestZone <= YIELD_FULL_PLANNER_DIST;
         c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || yieldNeedsFullPlanner || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
         // Fix 1: Expand blockedForProgress to include parallel and follow blocks when stuck
+        // Fix 5: Relax follow threshold — stopped car in a JAM CHAIN qualifies
+        // Chain = at least one stopped car behind us in same lane (not just a lone blocked car)
+        const inFollowChain = blockInfo.kind === 'follow' && c.speed < 0.1 && blocker && blocker.speed < 0.1 &&
+          active.some(o => o.id !== c.id && !o.done && o.seg === 'main' && o.lane === c.lane &&
+            o.speed < 0.1 && o.y > c.y && (o.y - c.y) < SPAWN_SPACING * 1.5);
         const blockedForProgress = blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || c.trafficMode === 'yield' ||
           (blockInfo.kind === 'parallel' && c.speed < 0.1) ||
-          (blockInfo.kind === 'follow' && blockInfo.gap !== null && blockInfo.gap < IDM_S0 * 0.5 && c.speed < 0.1);
+          inFollowChain;
         const maneuverProgressThresh = c.trafficMode === 'yield' ? NO_PROGRESS_THRESH_YIELD : NO_PROGRESS_THRESH;
         let shouldAccumulate = this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done;
         if (shouldAccumulate && c.trafficMode === 'yield') {
@@ -878,6 +905,8 @@
         if (!c.maneuvering && blockedForProgress && c.noProgressTicks >= maneuverProgressThresh && c.trafficMode !== 'batch' && !c.done && !canExitManeuverNow && canEnterManeuver) {
           c._maneuverCandidate = true;
           c._maneuverDpToFork = dpToNearestZone;
+          // Fix 6: Front-of-jam flag — direct blocker is fixed or stopped
+          c._maneuverFrontOfJam = blocker && (blocker.fixed || blocker.speed < 0.1) ? 1 : 0;
         }
 
         if (c.maneuvering) {
@@ -976,8 +1005,12 @@
         }
       }
 
-      // Fix 2 pass-2: Grant maneuver slots to candidates sorted by proximity to fork (closest first)
-      const maneuverCandidates = mains.filter(c => c._maneuverCandidate).sort((a, b) => a._maneuverDpToFork - b._maneuverDpToFork);
+      // Fix 2 pass-2: Grant maneuver slots to candidates sorted by front-of-jam priority
+      // Fix 6: Front-of-jam cars first (directly behind fixed/stopped blocker), then by Y (closest to exit)
+      const maneuverCandidates = mains.filter(c => c._maneuverCandidate).sort((a, b) => {
+        if (b._maneuverFrontOfJam !== a._maneuverFrontOfJam) return b._maneuverFrontOfJam - a._maneuverFrontOfJam;
+        return a.y - b.y;
+      });
       for (const c of maneuverCandidates) {
         if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) break;
         c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
@@ -989,7 +1022,7 @@
         if (this.testMetrics.firstProgressManeuverTick === null) this.testMetrics.firstProgressManeuverTick = this.ticks;
         this._event('maneuver_enter', { carId: c.id, reason: 'progress' });
       }
-      for (const c of mains) c._maneuverCandidate = false;
+      for (const c of mains) { c._maneuverCandidate = false; c._maneuverFrontOfJam = 0; }
 
       for (const c of active) {
         const pq = pathQuery(c.path, c.x, c.y, c.pathIdx); c.pathIdx = pq.idx; c._pq = pq;
