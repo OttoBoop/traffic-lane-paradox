@@ -2466,9 +2466,141 @@
       ctx.fillStyle = t.barnWall || '#7a3b1e';
       ctx.fillRect(x + bw * 0.36, y + bh * 0.70, bw * 0.28, bh * 0.26);
     }
+    /* ── Drawing primitives — Session 2 animals, props, structures ── */
+    _drawCow(ctx, x, y, scale) {
+      const s = scale || 1;
+      const bw = 10 * s, bh = 7 * s;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath(); ctx.ellipse(x + 1.5 * s, y + 1.5 * s, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Body — white oval
+      ctx.fillStyle = '#f5f0e0';
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Black patches (2–3 irregular arcs)
+      ctx.fillStyle = '#2a2a2a';
+      ctx.beginPath(); ctx.ellipse(x - bw * 0.15, y - bh * 0.1, bw * 0.18, bh * 0.22, 0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + bw * 0.2, y + bh * 0.08, bw * 0.14, bh * 0.18, -0.3, 0, Math.PI * 2); ctx.fill();
+      // Horn stubs — two small protrusions at top
+      ctx.fillStyle = '#d4c090';
+      ctx.beginPath(); ctx.ellipse(x - bw * 0.12, y - bh / 2 - 1.2 * s, 1.2 * s, 2 * s, -0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + bw * 0.12, y - bh / 2 - 1.2 * s, 1.2 * s, 2 * s, 0.3, 0, Math.PI * 2); ctx.fill();
+      // Outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    _drawChicken(ctx, x, y, scale) {
+      const s = scale || 1;
+      const bw = 4 * s, bh = 5 * s;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath(); ctx.ellipse(x + 0.8 * s, y + 0.8 * s, bw / 2, bh / 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      // Teardrop body — yellow-ish
+      ctx.fillStyle = '#e8d060';
+      ctx.beginPath();
+      ctx.moveTo(x, y - bh / 2);
+      ctx.bezierCurveTo(x + bw * 0.6, y - bh * 0.2, x + bw * 0.5, y + bh * 0.3, x, y + bh / 2);
+      ctx.bezierCurveTo(x - bw * 0.5, y + bh * 0.3, x - bw * 0.6, y - bh * 0.2, x, y - bh / 2);
+      ctx.fill();
+      // Beak — tiny orange triangle at top
+      ctx.fillStyle = '#e07020';
+      ctx.beginPath();
+      ctx.moveTo(x, y - bh / 2 - 1.5 * s);
+      ctx.lineTo(x - 1 * s, y - bh / 2 + 0.5 * s);
+      ctx.lineTo(x + 1 * s, y - bh / 2 + 0.5 * s);
+      ctx.closePath();
+      ctx.fill();
+    }
+    _drawPig(ctx, x, y, scale) {
+      const s = scale || 1;
+      const bw = 8 * s, bh = 6 * s;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.beginPath(); ctx.ellipse(x + 1.2 * s, y + 1.2 * s, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Body — pink oval
+      ctx.fillStyle = '#f0a0a0';
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Snout — darker pink circle
+      ctx.fillStyle = '#d07070';
+      ctx.beginPath(); ctx.arc(x, y - bh * 0.05, bw * 0.15, 0, Math.PI * 2); ctx.fill();
+      // Nostrils
+      ctx.fillStyle = '#a05050';
+      ctx.beginPath(); ctx.arc(x - 0.8 * s, y - bh * 0.05, 0.6 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 0.8 * s, y - bh * 0.05, 0.6 * s, 0, Math.PI * 2); ctx.fill();
+      // Ears — two small triangles
+      ctx.fillStyle = '#e88888';
+      ctx.beginPath();
+      ctx.moveTo(x - bw * 0.25, y - bh / 2);
+      ctx.lineTo(x - bw * 0.35, y - bh / 2 - 1.5 * s);
+      ctx.lineTo(x - bw * 0.15, y - bh / 2 + 0.5 * s);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + bw * 0.25, y - bh / 2);
+      ctx.lineTo(x + bw * 0.35, y - bh / 2 - 1.5 * s);
+      ctx.lineTo(x + bw * 0.15, y - bh / 2 + 0.5 * s);
+      ctx.closePath(); ctx.fill();
+      // Outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    _drawAnimalPen(ctx, x, y, pw, ph) {
+      // Fenced rectangle — wooden brown stroked rect with post dots at corners
+      ctx.strokeStyle = '#8b6b3a';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([3, 2]);
+      ctx.strokeRect(x, y, pw, ph);
+      ctx.setLineDash([]);
+      // Fence posts at corners
+      const postR = 1.5;
+      ctx.fillStyle = '#6b4e2a';
+      for (const [px, py] of [[x, y], [x + pw, y], [x, y + ph], [x + pw, y + ph]]) {
+        ctx.beginPath(); ctx.arc(px, py, postR, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    _drawLamppost(ctx, x, y, scale) {
+      const s = scale || 1;
+      // Pole — dark gray vertical line
+      const poleH = 8 * s;
+      ctx.strokeStyle = '#4a4a4a';
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y - poleH);
+      ctx.stroke();
+      // Lamp head — warm yellow circle at top
+      ctx.fillStyle = '#f0e068';
+      ctx.beginPath(); ctx.arc(x, y - poleH, 2 * s, 0, Math.PI * 2); ctx.fill();
+      // Glow halo
+      ctx.fillStyle = 'rgba(240,224,104,0.25)';
+      ctx.beginPath(); ctx.arc(x, y - poleH, 3.5 * s, 0, Math.PI * 2); ctx.fill();
+      // Base dot
+      ctx.fillStyle = '#3a3a3a';
+      ctx.beginPath(); ctx.arc(x, y, 1.2 * s, 0, Math.PI * 2); ctx.fill();
+    }
+    _drawPond(ctx, x, y, rx, ry) {
+      // Irregular blue shape using multiple overlapping ellipses
+      const edgeColor = '#4a8a6a';
+      const waterColor = '#6ec6e8';
+      const deepColor = '#4aa8d0';
+      // Muddy/green edge ring
+      ctx.fillStyle = edgeColor;
+      ctx.beginPath(); ctx.ellipse(x, y, rx + 2.5, ry + 2.5, 0.15, 0, Math.PI * 2); ctx.fill();
+      // Main water body — slightly irregular via overlapping ellipses
+      ctx.fillStyle = waterColor;
+      ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0.15, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + rx * 0.15, y - ry * 0.1, rx * 0.85, ry * 0.75, -0.1, 0, Math.PI * 2); ctx.fill();
+      // Deep center
+      ctx.fillStyle = deepColor;
+      ctx.beginPath(); ctx.ellipse(x - rx * 0.1, y + ry * 0.05, rx * 0.5, ry * 0.45, 0.1, 0, Math.PI * 2); ctx.fill();
+      // Highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.ellipse(x - rx * 0.25, y - ry * 0.2, rx * 0.2, ry * 0.15, 0, 0, Math.PI * 2); ctx.fill();
+    }
     _sceneCityNature(rd, w, h, ctx) {
       const t = this.theme, m = this._sceneMetrics(rd, w, h);
       const rng = Math.random;
+      const zones = this._safeZones(rd, w, 6);
       const roadL = rd.cx - m.roadHalf;
       const roadR = rd.cx + m.roadHalf;
 
@@ -2521,13 +2653,14 @@
       ctx.globalAlpha = 1;
       this._treeCluster(roadL * 0.4, 25, roadL * 0.35, 16, Math.round(16 * m.baseScale), t.forest, t.forestAlt);
       this._treeCluster(roadL * 0.5, rd.forkY * 0.3, roadL * 0.3, 12, Math.round(10 * m.baseScale), t.forestAlt, t.forest);
-      // Scattered left-upper trees
+      // Scattered left-upper trees — per-element zone guard
       for (let i = 0; i < Math.round(20 * m.baseScale); i++) {
-        const tx = 4 + rng() * (roadL - 10);
+        const tx = 4 + rng() * (zones.left.max - 10);
         const ty = 4 + rng() * (rd.forkY * 0.6);
         const normY = ty / rd.forkY;
         if (rng() > (1 - normY * 0.7)) continue;
         const tr = (2.5 + rng() * 3.5) * (0.8 + (1 - normY) * 0.5);
+        if (tx + tr > zones.left.max) continue;
         ctx.fillStyle = t.houseShadow;
         ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1.2, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = rng() > 0.3 ? t.forest : t.forestAlt;
@@ -2542,21 +2675,22 @@
       this._treeCluster(w * 0.75, 20, (w - roadR) * 0.42, 16, Math.round(20 * m.baseScale), t.forest, t.forestAlt);
       this._treeCluster(w * 0.6, 35, (w - roadR) * 0.3, 14, Math.round(14 * m.baseScale), t.forestAlt, t.forest);
       this._treeCluster(w * 0.7, rd.forkY * 0.35, (w - roadR) * 0.3, 10, Math.round(10 * m.baseScale), t.forestAlt, t.forest);
-      // Scattered right-upper trees
+      // Scattered right-upper trees — per-element zone guard
       for (let i = 0; i < Math.round(25 * m.baseScale); i++) {
-        const tx = roadR + 6 + rng() * (w - roadR - 12);
+        const tx = zones.right.min + rng() * (w - zones.right.min - 6);
         const ty = 4 + rng() * (rd.forkY * 0.7);
         const normY = ty / rd.forkY;
         if (rng() > (1 - normY * 0.8)) continue;
         const tr = (3 + rng() * 4) * (0.8 + (1 - normY) * 0.6);
+        if (tx - tr < zones.right.min) continue;
         ctx.fillStyle = t.houseShadow;
         ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1.5, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = rng() > 0.3 ? t.forest : t.forestAlt;
         ctx.beginPath(); ctx.arc(tx, ty, tr, 0, Math.PI * 2); ctx.fill();
       }
 
-      // ── Farm area (right side, below fork) ─────────────
-      const farmL = roadR + 6;
+      // ── Farm area (right side, below fork) — clamped to safe zone ──
+      const farmL = zones.right.min;
       const farmTop = rd.forkY + 12;
       const farmBot = h - 6;
       const farmW = w - farmL - 3;
@@ -2591,30 +2725,22 @@
       const barnY = farmTop + farmH * 0.35;
       this._drawTopDownBarn(ctx, barnX, barnY, barnW, barnH, t);
 
-      // Pond — in its own space at bottom-right
+      // Pond — using _drawPond primitive
       const pondCx = farmL + farmW * 0.78;
       const pondCy = farmTop + farmH * 0.82;
       const pondRx = 12 * m.baseScale, pondRy = 8 * m.baseScale;
-      ctx.fillStyle = t.pondEdge;
-      ctx.beginPath(); ctx.ellipse(pondCx, pondCy, pondRx + 2, pondRy + 2, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = t.pond;
-      ctx.beginPath(); ctx.ellipse(pondCx, pondCy, pondRx, pondRy, 0, 0, Math.PI * 2); ctx.fill();
+      this._drawPond(ctx, pondCx, pondCy, pondRx, pondRy);
 
-      // Fenced enclosure — bottom-left of farm
-      const fX = farmL + farmW * 0.05, fY = farmTop + farmH * 0.78;
-      const fW = 20 * m.baseScale, fH = 14 * m.baseScale;
+      // Fenced animal pen — using _drawAnimalPen primitive
+      const fX = farmL + farmW * 0.05, fY = farmTop + farmH * 0.58;
+      const fW = 28 * m.baseScale, fH = 20 * m.baseScale;
       ctx.fillStyle = t.yardGreen;
       ctx.fillRect(fX, fY, fW, fH);
-      ctx.strokeStyle = t.fence; ctx.lineWidth = 1.2;
-      ctx.strokeRect(fX, fY, fW, fH);
-      for (let fp = fX; fp <= fX + fW; fp += fW / 4) {
-        ctx.fillStyle = t.fence;
-        ctx.fillRect(fp - 0.8, fY - 2, 1.6, fH + 4);
-      }
+      this._drawAnimalPen(ctx, fX, fY, fW, fH);
 
-      // ── Isometric houses (left side, below fork only) ──
+      // ── Houses (left side, below fork only) — clamped to safe zone ──
       const margin = 4;
-      const availW = roadL - margin * 2;
+      const availW = Math.min(zones.left.max, roadL) - margin * 2;
       const urbanTop = rd.forkY + 8;
       const urbanBot = h - 10;
       const urbanH = urbanBot - urbanTop;
@@ -2630,7 +2756,7 @@
         const sideExtra = sw * 0.35;
         const hx = margin + rng() * Math.max(0, availW - sw - sideExtra);
         const hy = urbanTop + rng() * Math.max(0, urbanH - sh - 10);
-        if (hx + sw + sideExtra > roadL - 4) continue;
+        if (hx + sw + sideExtra > zones.left.max) continue;
         const pad = 6;
         let ok = true;
         for (const p of placed) {
@@ -2685,11 +2811,12 @@
         ctx.beginPath(); ctx.arc(fs.x - fr * 0.2, fs.y - fr * 0.2, fr * 0.32, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Sidewalk trees among houses
+      // Sidewalk trees among houses — clamped to left safe zone
       for (let i = 0; i < Math.round(5 * hScale); i++) {
-        const tx = margin + rng() * Math.max(4, roadL - margin - 6);
+        const tx = margin + rng() * Math.max(4, zones.left.max - margin - 6);
         const ty = urbanTop + rng() * urbanH;
         const tr = 2 + rng() * 2.5;
+        if (tx + tr > zones.left.max) continue; // per-element guard
         ctx.fillStyle = t.houseShadow;
         ctx.beginPath(); ctx.ellipse(tx + 1, ty + 1, tr, tr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = rng() > 0.4 ? t.forest : t.forestAlt;
