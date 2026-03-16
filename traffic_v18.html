@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The Lane Paradox</title>
+  <title>O Paradoxo da Faixa</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
 
@@ -45,14 +45,14 @@
     }
 
     .hdr {
-      padding: 12px 20px;
+      padding: 20px 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid var(--shell-border);
       background: var(--shell);
       flex-shrink: 0;
-      gap: 10px;
+      gap: 14px;
       flex-wrap: wrap;
       box-shadow: 0 12px 32px rgba(30, 82, 83, .12);
       -webkit-backdrop-filter: blur(12px);
@@ -60,7 +60,7 @@
     }
 
     .hdr h1 {
-      font-size: 12px;
+      font-size: 15px;
       font-weight: 700;
       letter-spacing: 3px;
       text-transform: uppercase;
@@ -75,15 +75,15 @@
     .ctrls {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 16px;
       flex-wrap: wrap
     }
 
     .cg {
       display: flex;
       align-items: center;
-      gap: 4px;
-      font-size: 9px;
+      gap: 6px;
+      font-size: 12px;
       color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 1px
@@ -96,22 +96,22 @@
     }
 
     .cg input[type=number] {
-      width: 40px;
+      width: 48px;
       background: rgba(255, 255, 255, .62);
       border: 1px solid rgba(53, 105, 102, .22);
       color: var(--ink);
-      padding: 2px 4px;
+      padding: 4px 6px;
       font-family: inherit;
-      font-size: 9px;
-      border-radius: 2px;
+      font-size: 12px;
+      border-radius: 3px;
       text-align: center
     }
 
     .cv {
       color: #3d6668;
-      min-width: 18px;
+      min-width: 22px;
       text-align: center;
-      font-size: 9px
+      font-size: 12px
     }
 
     .sep {
@@ -125,8 +125,8 @@
       border: 1px solid rgba(44, 104, 99, .22);
       color: #355f62;
       font-family: inherit;
-      font-size: 9px;
-      padding: 4px 12px;
+      font-size: 12px;
+      padding: 7px 18px;
       cursor: pointer;
       letter-spacing: 1px;
       text-transform: uppercase;
@@ -374,20 +374,62 @@
     }
 
     .ftr {
-      padding: 5px 20px;
+      padding: 8px 20px;
       border-top: 1px solid var(--shell-border);
       background: rgba(236, 245, 239, .78);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 16px;
-      font-size: 8px;
+      gap: 18px;
+      font-size: 10px;
       color: #587474;
       letter-spacing: 1px;
       text-transform: uppercase;
       flex-shrink: 0;
       -webkit-backdrop-filter: blur(10px);
       backdrop-filter: blur(10px)
+    }
+
+    .lang-toggle {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      letter-spacing: 1px
+    }
+
+    .lang-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 400;
+      padding: 3px 8px;
+      cursor: pointer;
+      border-radius: 999px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all .15s
+    }
+
+    .lang-btn:hover {
+      color: var(--ink);
+      border-color: rgba(44, 104, 99, .18)
+    }
+
+    .lang-btn.active {
+      font-weight: 700;
+      color: var(--accent);
+      border-color: rgba(29, 133, 114, .32);
+      background: rgba(29, 133, 114, .06)
+    }
+
+    .lang-sep {
+      color: rgba(44, 104, 99, .25);
+      font-size: 11px;
+      -webkit-user-select: none;
+      user-select: none
     }
 
     .dt {
@@ -423,29 +465,92 @@
 
 <body>
   <div class="hdr">
-    <h1>The Lane <b>Paradox</b></h1>
+    <h1 id="mainTitle">O <b>Paradoxo</b> da Faixa</h1>
     <div class="ctrls">
-        <div class="cg"><label for="nCars">Cars</label><input type="number" id="nCars" value="20" min="2" title="Number of cars"></div>
-        <div class="cg"><label for="split">Left%</label><input type="range" id="split" min="0" max="100" value="50" step="5" title="Share of cars that want the left branch"><span
+        <div class="cg"><label for="nCars" data-i18n="cars">Carros</label><input type="number" id="nCars" value="20" min="2" data-i18n-title="carsTooltip" title="Número de carros"></div>
+        <div class="cg"><label for="split" data-i18n="leftPct">Esq%</label><input type="range" id="split" min="0" max="100" value="50" step="5" data-i18n-title="leftPctTooltip" title="Proporção de carros que querem a faixa esquerda"><span
           class="cv" id="splitV">50</span></div>
-        <div class="cg"><label for="spd">Speed</label><input type="range" id="spd" min="0.3" max="3" value="1" step="0.1" title="Simulation speed"><span
+        <div class="cg"><label for="spd" data-i18n="speed">Velocidade</label><input type="range" id="spd" min="0.3" max="3" value="1" step="0.1" data-i18n-title="speedTooltip" title="Velocidade da simulação"><span
           class="cv" id="spdV">1.0x</span></div>
-      <div class="cg"><label for="themeSelect">Theme</label><select id="themeSelect" title="Visual theme">
-          <option value="classic">Clássico</option>
-          <option value="rioSatellite" selected>Rio Satélite</option>
-          <option value="cityNature">Cidade &amp; Natureza</option>
+      <div class="cg"><label for="themeSelect" data-i18n="theme">Tema</label><select id="themeSelect" data-i18n-title="themeTooltip" title="Tema visual">
+          <option value="classic" data-i18n="themeClassic">Clássico</option>
+          <option value="rioSatellite" selected data-i18n="themeRioSatellite">Rio Satélite</option>
+          <option value="cityNature" data-i18n="themeCityNature">Cidade &amp; Natureza</option>
         </select></div>
       <div class="sep"></div>
-      <button class="btn bp" id="bPlay">Play</button>
-      <button class="btn br" id="bReset">Reset</button>
+      <div class="lang-toggle"><button class="lang-btn active" id="langPt">PT</button><span class="lang-sep">|</span><button class="lang-btn" id="langEn">EN</button></div>
+      <div class="sep"></div>
+      <button class="btn bp" id="bPlay">Iniciar</button>
+      <button class="btn br" id="bReset">Reiniciar</button>
     </div>
   </div>
   <div class="sim" id="simC"></div>
-  <div class="ftr"><span><span class="dt dl"></span>wants left</span><span><span class="dt dr"></span>wants
-      right</span><span><span class="dt dy"></span>yielding</span><span><span class="dt db"></span>crossing</span><span><span class="dt dm"></span>maneuvering</span></div>
+  <div class="ftr"><span><span class="dt dl"></span><span data-i18n="wantsLeft">quer esquerda</span></span><span><span class="dt dr"></span><span data-i18n="wantsRight">quer direita</span></span><span><span class="dt dy"></span><span data-i18n="yielding">cedendo</span></span><span><span class="dt db"></span><span data-i18n="crossing">cruzando</span></span><span><span class="dt dm"></span><span data-i18n="maneuvering">manobrando</span></span></div>
 
   <script src="traffic_core.js"></script>
   <script>
+    /* ── i18n ─────────────────────────────────────────────── */
+    const STRINGS = {
+      pt: {
+        title: 'O Paradoxo da Faixa',
+        titleHTML: 'O <b>Paradoxo</b> da Faixa',
+        cars: 'Carros', carsTooltip: 'Número de carros',
+        leftPct: 'Esq%', leftPctTooltip: 'Proporção de carros que querem a faixa esquerda',
+        speed: 'Velocidade', speedTooltip: 'Velocidade da simulação',
+        theme: 'Tema', themeTooltip: 'Tema visual',
+        themeClassic: 'Clássico', themeRioSatellite: 'Rio Satélite', themeCityNature: 'Cidade & Natureza',
+        play: 'Iniciar', pause: 'Pausar', reset: 'Reiniciar',
+        lane: 'Faixa', lanes: 'Faixas',
+        wantsLeft: 'quer esquerda', wantsRight: 'quer direita',
+        yielding: 'cedendo', crossing: 'cruzando', maneuvering: 'manobrando',
+        rank: ['1º','2º','3º','4º','5º','6º']
+      },
+      en: {
+        title: 'The Lane Paradox',
+        titleHTML: 'The Lane <b>Paradox</b>',
+        cars: 'Cars', carsTooltip: 'Number of cars',
+        leftPct: 'Left%', leftPctTooltip: 'Share of cars that want the left branch',
+        speed: 'Speed', speedTooltip: 'Simulation speed',
+        theme: 'Theme', themeTooltip: 'Visual theme',
+        themeClassic: 'Classic', themeRioSatellite: 'Rio Satellite', themeCityNature: 'City & Nature',
+        play: 'Play', pause: 'Pause', reset: 'Reset',
+        lane: 'Lane', lanes: 'Lanes',
+        wantsLeft: 'wants left', wantsRight: 'wants right',
+        yielding: 'yielding', crossing: 'crossing', maneuvering: 'maneuvering',
+        rank: ['1st','2nd','3rd','4th','5th','6th']
+      }
+    };
+    let curLang = 'pt';
+    function t(key) { return STRINGS[curLang][key]; }
+
+    function applyLang(lang) {
+      curLang = lang;
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('mainTitle').innerHTML = t('titleHTML');
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.textContent = t(el.dataset.i18n);
+      });
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        el.title = t(el.dataset.i18nTitle);
+      });
+      // update play/pause button text based on running state
+      const bp = document.getElementById('bPlay');
+      bp.textContent = gRun ? t('pause') : t('play');
+      document.getElementById('bReset').textContent = t('reset');
+      // toggle active states
+      document.getElementById('langPt').classList.toggle('active', lang === 'pt');
+      document.getElementById('langEn').classList.toggle('active', lang === 'en');
+      // re-render lane labels
+      scenarios.forEach((sc, i) => {
+        const lbl = document.getElementById('l' + i);
+        if (lbl) lbl.textContent = sc.lanes + ' ' + (sc.lanes > 1 ? t('lanes') : t('lane'));
+      });
+      // re-render ranks
+      updateRanks();
+    }
+    /* ── /i18n ────────────────────────────────────────────── */
+
     const { Sim, Ren, V0_DEF, RENDER_THEMES } = window.TrafficCore;
     const MIN_LOGICAL_CANVAS_W = 220;
     const MIN_LOGICAL_CANVAS_H = 260;
@@ -464,7 +569,7 @@
       const c = $('simC'); c.innerHTML = ''; sims = []; rens = []; cvs = []; finishOrder = [];
       scenarios.forEach((sc, i) => {
         const d = document.createElement('div'); d.className = 'sc'; d.id = `sc${i}`;
-        d.innerHTML = `<div class="sc-h"><div class="sc-ln"><button class="lb" data-i="${i}" data-d="-1">-</button><span class="sc-lbl" id="l${i}">${sc.lanes} Lane${sc.lanes > 1 ? 's' : ''}</span><button class="lb" data-i="${i}" data-d="1">+</button><button class="lx" data-rm="${i}">x</button></div><div class="tmr wait" id="t${i}">0.00s</div></div><span class="rank" id="r${i}"></span><div class="cw" id="w${i}"><canvas id="c${i}"></canvas></div>`;
+        d.innerHTML = `<div class="sc-h"><div class="sc-ln"><button class="lb" data-i="${i}" data-d="-1">-</button><span class="sc-lbl" id="l${i}">${sc.lanes} ${sc.lanes > 1 ? t('lanes') : t('lane')}</span><button class="lb" data-i="${i}" data-d="1">+</button><button class="lx" data-rm="${i}">x</button></div><div class="tmr wait" id="t${i}">0.00s</div></div><span class="rank" id="r${i}"></span><div class="cw" id="w${i}"><canvas id="c${i}"></canvas></div>`;
         c.appendChild(d);
       });
       const ab = document.createElement('div'); ab.className = 'add'; ab.textContent = '+';
@@ -481,16 +586,18 @@
       rens = sims.map((s, i) => new Ren(cvs[i], s, { theme: selTheme }));
     }
     function renderAll() { rens.forEach(r => r.draw()); sims.forEach((s, i) => { const el = $(`t${i}`); if (!el) return; el.textContent = s.timerSec.toFixed(2) + 's'; el.className = 'tmr' + (s.finished ? ' done' : (!s.started ? ' wait' : '')); }); }
-    function updateRanks() { sims.forEach((s, i) => { if (s.finished && !finishOrder.includes(i)) finishOrder.push(i); }); const lb = ['1st', '2nd', '3rd', '4th', '5th', '6th']; sims.forEach((_, i) => { const el = $(`r${i}`); if (!el) return; const ri = finishOrder.indexOf(i); if (ri >= 0) { el.textContent = lb[ri] || `#${ri + 1}`; el.className = `rank show ${ri < 3 ? 'r' + (ri + 1) : 'rx'}`; } }); }
-    function rebuild() { cancelAnimationFrame(anim); gRun = false; $('bPlay').textContent = 'Play'; $('bPlay').classList.remove('on'); build(); }
-    function animate(time) { if (!gRun) return; const raw = lastT ? Math.min((time - lastT) / 16.67, 3) : 0; lastT = time; const dt = raw * (parseFloat($('spd').value) || 1), P = getP(); sims.forEach(s => s.tick(dt, P)); renderAll(); updateRanks(); if (sims.every(s => s.finished)) { gRun = false; $('bPlay').textContent = 'Play'; $('bPlay').classList.remove('on'); } if (gRun) anim = requestAnimationFrame(animate); }
-    $('bPlay').onclick = () => { if (gRun) { gRun = false; $('bPlay').textContent = 'Play'; $('bPlay').classList.remove('on'); cancelAnimationFrame(anim); } else { if (!sims.some(s => s.started)) sims.forEach(s => s.start()); gRun = true; lastT = 0; $('bPlay').textContent = 'Pause'; $('bPlay').classList.add('on'); anim = requestAnimationFrame(animate); } };
+    function updateRanks() { sims.forEach((s, i) => { if (s.finished && !finishOrder.includes(i)) finishOrder.push(i); }); const lb = t('rank'); sims.forEach((_, i) => { const el = $(`r${i}`); if (!el) return; const ri = finishOrder.indexOf(i); if (ri >= 0) { el.textContent = lb[ri] || `#${ri + 1}`; el.className = `rank show ${ri < 3 ? 'r' + (ri + 1) : 'rx'}`; } }); }
+    function rebuild() { cancelAnimationFrame(anim); gRun = false; $('bPlay').textContent = t('play'); $('bPlay').classList.remove('on'); build(); }
+    function animate(time) { if (!gRun) return; const raw = lastT ? Math.min((time - lastT) / 16.67, 3) : 0; lastT = time; const dt = raw * (parseFloat($('spd').value) || 1), P = getP(); sims.forEach(s => s.tick(dt, P)); renderAll(); updateRanks(); if (sims.every(s => s.finished)) { gRun = false; $('bPlay').textContent = t('play'); $('bPlay').classList.remove('on'); } if (gRun) anim = requestAnimationFrame(animate); }
+    $('bPlay').onclick = () => { if (gRun) { gRun = false; $('bPlay').textContent = t('play'); $('bPlay').classList.remove('on'); cancelAnimationFrame(anim); } else { if (!sims.some(s => s.started)) sims.forEach(s => s.start()); gRun = true; lastT = 0; $('bPlay').textContent = t('pause'); $('bPlay').classList.add('on'); anim = requestAnimationFrame(animate); } };
     $('bReset').onclick = () => { gSeed = Math.floor(Math.random() * 1e5); rebuild(); };
     $('split').oninput = e => $('splitV').textContent = e.target.value;
     $('spd').oninput = e => $('spdV').textContent = parseFloat(e.target.value).toFixed(1) + 'x';
-    ['nCars', 'split'].forEach(id => { $(id).onchange = () => { if (gRun) { gRun = false; $('bPlay').textContent = 'Play'; $('bPlay').classList.remove('on'); cancelAnimationFrame(anim); } rebuild(); }; });
+    ['nCars', 'split'].forEach(id => { $(id).onchange = () => { if (gRun) { gRun = false; $('bPlay').textContent = t('play'); $('bPlay').classList.remove('on'); cancelAnimationFrame(anim); } rebuild(); }; });
     window.addEventListener('resize', () => { resize(); rens.forEach(r => r._invalidateSceneBuf()); sims.forEach((s, i) => { const cv = cvs[i]; if (cv) { const logical = logicalCanvasSize(cv); s.init(logical.w, logical.h); } }); renderAll(); });
     $('themeSelect').onchange = e => { const key = e.target.value; const th = RENDER_THEMES[key]; if (!th) return; rens.forEach(r => { r.theme = th; r._invalidateSceneBuf(); }); renderAll(); };
+    $('langPt').onclick = () => applyLang('pt');
+    $('langEn').onclick = () => applyLang('en');
     build();
   </script>
 </body>
