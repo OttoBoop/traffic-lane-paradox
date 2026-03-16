@@ -504,8 +504,9 @@
   }
 
   class Sim {
-    constructor(nL, nC, splitPct, seed) {
+    constructor(nL, nC, splitPct, seed, opts) {
       this.nL = nL; this.nC = nC; this.splitPct = splitPct; this.seed = seed;
+      this._lazyLifecycle = !!(opts && opts.lazy);
       this.road = null; this.cars = []; this.ticks = 0;
       this.running = this.started = this.finished = false; this.finishTick = 0; this.satCount = 0;
       this.rng = mkRng(seed ^ 0x5bd1e995);
@@ -525,20 +526,59 @@
       const R = mkRng(this.seed), n = this.nC, nL = Math.round(n * this.splitPct / 100);
       const tg = []; for (let i = 0; i < n; i++)tg.push(i < nL ? 'left' : 'right');
       for (let i = n - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1));[tg[i], tg[j]] = [tg[j], tg[i]]; }
-      const perL = new Array(this.nL).fill(0), rd = this.road;
+      const rd = this.road;
       const laneStagger = this.nL > 1 ? SPAWN_SPACING / (this.nL + 1) : 0;
       const rowPitch = SPAWN_SPACING + laneStagger * Math.max(0, this.nL - 1);
-      for (let i = 0; i < n; i++) {
-        const lane = i % this.nL, lx = rd.laneX(lane);
-        const row = perL[lane];
-        const phase = this.nL > 1 ? lane : 0;
-        const yPos = rd.stopY + SPAWN_SPACING + row * rowPitch + phase * laneStagger;
-        const c = new Car(i, lx, yPos, -Math.PI / 2, lane, tg[i], (R() - 0.5));
-        c.mobilTimer = Math.floor(R() * 20);
-        c.pathKey = lane + '-' + c.target; c.path = rd.fullPaths[c.pathKey];
-        c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx;
-        c.lastProgress = c.pathIdx * PATH_SP;
-        this.cars.push(c); perL[lane]++;
+      const perL = new Array(this.nL).fill(0);
+      if (this._lazyLifecycle) {
+        // Pre-roll all RNG draws for deterministic target/tiebreak assignment
+        const spawnMeta = [];
+        for (let i = 0; i < n; i++) {
+          spawnMeta.push({ target: tg[i], tiebreak: R() - 0.5, mobilTimer: Math.floor(R() * 20) });
+        }
+        // Lazy init: only pre-fill cars whose Y fits within the canvas + margin
+        const spawnMargin = 10;
+        const maxVisibleY = h + spawnMargin;
+        this._spawnQueue = [];
+        this._spawnedCount = 0;
+        this._spawnMeta = spawnMeta;
+        this._spawnLaneStagger = laneStagger;
+        this._spawnRowPitch = rowPitch;
+        this._spawnPerL = perL;
+        this._initW = w; this._initH = h;
+        for (let i = 0; i < n; i++) {
+          const lane = i % this.nL, lx = rd.laneX(lane);
+          const row = perL[lane];
+          const phase = this.nL > 1 ? lane : 0;
+          const yPos = rd.stopY + SPAWN_SPACING + row * rowPitch + phase * laneStagger;
+          if (yPos > maxVisibleY) {
+            this._spawnQueue.push({ idx: i, lane, meta: spawnMeta[i] });
+            perL[lane]++;
+            continue;
+          }
+          const meta = spawnMeta[i];
+          const c = new Car(i, lx, yPos, -Math.PI / 2, lane, meta.target, meta.tiebreak);
+          c.mobilTimer = meta.mobilTimer;
+          c.pathKey = lane + '-' + c.target; c.path = rd.fullPaths[c.pathKey];
+          c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx;
+          c.lastProgress = c.pathIdx * PATH_SP;
+          this.cars.push(c); perL[lane]++;
+          this._spawnedCount++;
+        }
+      } else {
+        // Legacy init: create all N cars at once
+        for (let i = 0; i < n; i++) {
+          const lane = i % this.nL, lx = rd.laneX(lane);
+          const row = perL[lane];
+          const phase = this.nL > 1 ? lane : 0;
+          const yPos = rd.stopY + SPAWN_SPACING + row * rowPitch + phase * laneStagger;
+          const c = new Car(i, lx, yPos, -Math.PI / 2, lane, tg[i], (R() - 0.5));
+          c.mobilTimer = Math.floor(R() * 20);
+          c.pathKey = lane + '-' + c.target; c.path = rd.fullPaths[c.pathKey];
+          c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx;
+          c.lastProgress = c.pathIdx * PATH_SP;
+          this.cars.push(c); perL[lane]++;
+        }
       }
     }
     start() { this.started = this.running = true; }
@@ -596,7 +636,9 @@
     }
 
     _syncTestMetrics() {
-      this.testMetrics.doneCount = this.cars.filter(c => c.done && !c.fixed).length;
+      this.testMetrics.doneCount = this._lazyLifecycle
+        ? this.testMetrics.finishOrder.length
+        : this.cars.filter(c => c.done && !c.fixed).length;
       this.testMetrics.maneuverEnterCount = this.maneuverTriggerCount;
       this.testMetrics.yieldEnterCount = this.yieldEntryCount;
       this.testMetrics.holdExitEnterCount = this.holdExitEntryCount;
@@ -1299,7 +1341,18 @@
 
       this._syncTestMetrics();
 
-      if (this.started && this.cars.every(c => c.done)) { this.finished = true; this.finishTick = this.ticks; this.running = false; }
+      // Early despawn: splice done+logged cars from the array (F2-T4)
+      // Only active when lazy lifecycle is enabled
+      if (this._lazyLifecycle) {
+        for (let i = this.cars.length - 1; i >= 0; i--) {
+          if (this.cars[i].done && this.cars[i]._finishLogged) {
+            this.cars.splice(i, 1);
+          }
+        }
+        if (this.started && this._spawnedCount >= this.nC && this.cars.length === 0) { this.finished = true; this.finishTick = this.ticks; this.running = false; }
+      } else {
+        if (this.started && this.cars.every(c => c.done)) { this.finished = true; this.finishTick = this.ticks; this.running = false; }
+      }
     }
 
     _movementPriority(c) {
@@ -3072,6 +3125,8 @@
     sim.init(width, height);
     if (Array.isArray(spec.cars)) {
       sim.cars = [];
+      sim._lazyLifecycle = false;
+      sim._spawnQueue = [];
       spec.cars.forEach((cfg, i) => {
         const lane = cfg.lane ?? 0;
         const target = cfg.target ?? 'left';
@@ -3109,6 +3164,10 @@
         if (cfg.progressResumeTicks !== undefined) car.progressResumeTicks = cfg.progressResumeTicks;
         sim.cars.push(car);
       });
+    }
+    if (Array.isArray(spec.cars)) {
+      sim._spawnedCount = sim.cars.length;
+      sim.nC = sim.cars.length;
     }
     sim.testConfig = { label: spec.label || '', dt: spec.dt || 1, maxTicks: spec.maxTicks || 0 };
     if (spec.started) sim.start();

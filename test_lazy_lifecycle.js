@@ -54,7 +54,7 @@ const P = { v0: V0_DEF };
 console.log("\n— F1-T1: Lazy Init Tests —");
 
 test("init() should create fewer cars than nC at tick 0", () => {
-  const sim = new Sim(3, 20, 50, 42);
+  const sim = new Sim(3, 20, 50, 42, { lazy: true });
   sim.init(W, H);
   // With 3 lanes and 20 cars, only ~1-2 per lane should be visible
   // (canvas height ~760, stopY ~547, SPAWN_SPACING ~40)
@@ -66,7 +66,7 @@ test("init() should create fewer cars than nC at tick 0", () => {
 });
 
 test("init() should populate _spawnQueue with remaining targets", () => {
-  const sim = new Sim(3, 20, 50, 42);
+  const sim = new Sim(3, 20, 50, 42, { lazy: true });
   sim.init(W, H);
   assert(
     sim._spawnQueue !== undefined && sim._spawnQueue !== null,
@@ -87,7 +87,7 @@ test("init() should populate _spawnQueue with remaining targets", () => {
 });
 
 test("init() should set _spawnedCount to number of pre-filled cars", () => {
-  const sim = new Sim(3, 20, 50, 42);
+  const sim = new Sim(3, 20, 50, 42, { lazy: true });
   sim.init(W, H);
   assert(
     sim._spawnedCount !== undefined,
@@ -100,7 +100,7 @@ test("init() should set _spawnedCount to number of pre-filled cars", () => {
 });
 
 test("all pre-filled cars should have Y <= canvas height + margin", () => {
-  const sim = new Sim(3, 20, 50, 42);
+  const sim = new Sim(3, 20, 50, 42, { lazy: true });
   sim.init(W, H);
   const margin = 20; // generous margin
   for (const c of sim.cars) {
@@ -112,7 +112,7 @@ test("all pre-filled cars should have Y <= canvas height + margin", () => {
 });
 
 test("all pre-filled cars should have valid paths assigned", () => {
-  const sim = new Sim(3, 20, 50, 42);
+  const sim = new Sim(3, 20, 50, 42, { lazy: true });
   sim.init(W, H);
   for (const c of sim.cars) {
     assert(c.path !== null && c.path !== undefined, `Car ${c.id} has null path`);
@@ -127,7 +127,8 @@ test("all pre-filled cars should have valid paths assigned", () => {
 console.log("\n— F2-T4: Early Despawn Tests —");
 
 test("done cars should be removed from this.cars[] after metrics are recorded", () => {
-  const sim = new Sim(3, 20, 50, 42);
+  // Use small count where all cars fit on screen (no spawner needed)
+  const sim = new Sim(2, 4, 50, 42, { lazy: true });
   sim.init(W, H);
   sim.start();
   // Run until at least one car finishes
@@ -145,8 +146,10 @@ test("done cars should be removed from this.cars[] after metrics are recorded", 
 });
 
 test("finishTimes should have entries for all finished cars after splice", () => {
-  const sim = new Sim(2, 10, 50, 42);
+  // Use small count where all cars fit on screen (no spawner needed)
+  const sim = new Sim(2, 4, 50, 42, { lazy: true });
   sim.init(W, H);
+  assert(sim._spawnedCount === sim.nC, `All ${sim.nC} cars should be pre-filled for this config`);
   sim.start();
   // Run to completion
   for (let t = 0; t < 100000 && !sim.finished; t++) {
@@ -161,8 +164,10 @@ test("finishTimes should have entries for all finished cars after splice", () =>
 });
 
 test("finish check should work with _spawnedCount instead of cars.every(done)", () => {
-  const sim = new Sim(2, 10, 50, 42);
+  // Use small count where all cars fit on screen (no spawner needed)
+  const sim = new Sim(2, 4, 50, 42, { lazy: true });
   sim.init(W, H);
+  assert(sim._spawnedCount === sim.nC, `All ${sim.nC} cars should be pre-filled for this config`);
   sim.start();
   for (let t = 0; t < 100000 && !sim.finished; t++) {
     sim.tick(1, P);
