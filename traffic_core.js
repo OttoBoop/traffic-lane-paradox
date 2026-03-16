@@ -506,7 +506,7 @@
   class Sim {
     constructor(nL, nC, splitPct, seed, opts) {
       this.nL = nL; this.nC = nC; this.splitPct = splitPct; this.seed = seed;
-      this._lazyLifecycle = !!(opts && opts.lazy);
+      this._lazyLifecycle = !(opts && opts.lazy === false);
       this.road = null; this.cars = []; this.ticks = 0;
       this.running = this.started = this.finished = false; this.finishTick = 0; this.satCount = 0;
       this.rng = mkRng(seed ^ 0x5bd1e995);
@@ -790,6 +790,35 @@
       if (!this.running || this.finished) return;
       this.ticks += dt;
       const rd = this.road;
+      // Lazy spawner: create cars from _spawnQueue when there's room
+      if (this._lazyLifecycle && this._spawnQueue.length > 0) {
+        const spawnY = this._initH + 10;
+        for (let li = 0; li < this.nL; li++) {
+          if (this._spawnQueue.length === 0) break;
+          // Find the rearmost car in this lane (highest Y = closest to spawn point)
+          let rearY = -Infinity;
+          for (const c of this.cars) {
+            if (c.seg === 'main' && c.lane === li && c.y > rearY) rearY = c.y;
+          }
+          // Spawn if the lane is clear at the spawn point
+          if (rearY < spawnY - SPAWN_SPACING) {
+            // Find next queued car for this lane
+            const qi = this._spawnQueue.findIndex(q => q.lane === li);
+            if (qi === -1) continue;
+            const q = this._spawnQueue.splice(qi, 1)[0];
+            const meta = q.meta;
+            const lx = rd.laneX(li);
+            const c = new Car(q.idx, lx, spawnY, -Math.PI / 2, li, meta.target, meta.tiebreak);
+            c.mobilTimer = meta.mobilTimer;
+            c.pathKey = li + '-' + c.target;
+            c.path = rd.fullPaths[c.pathKey];
+            c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx;
+            c.lastProgress = c.pathIdx * PATH_SP;
+            this.cars.push(c);
+            this._spawnedCount++;
+          }
+        }
+      }
       const allActive = this.cars.filter(c => !c.done);
       // P8: Off-screen car sleep — cars far from the stop line skip the full pipeline
       // Jam wave wake: sleeping cars stuck for SLEEP_STUCK_WAKE_THRESH ticks wake up
