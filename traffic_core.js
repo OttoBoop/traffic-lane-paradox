@@ -34,7 +34,7 @@
   const PROGRESS_RESUME_THRESH = 20;
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
-  const MAX_ACTIVE_MANEUVERS = 8;
+  const MAX_ACTIVE_MANEUVERS = 15;
   const SLEEP_STUCK_WAKE_THRESH = 30;
   const EARLY_EXIT_SCORE = 0.9;
   const YIELD_FULL_PLANNER_DIST = 60;
@@ -1005,11 +1005,11 @@
         }
       }
 
-      // Fix 2 pass-2: Grant maneuver slots to candidates sorted by front-of-jam priority
-      // Fix 6: Front-of-jam cars first (directly behind fixed/stopped blocker), then by Y (closest to exit)
+      // Fix 2 pass-2: Grant maneuver slots to candidates sorted by exit proximity
+      // Closest to exit first (lower Y), front-of-jam as tiebreaker
       const maneuverCandidates = mains.filter(c => c._maneuverCandidate).sort((a, b) => {
-        if (b._maneuverFrontOfJam !== a._maneuverFrontOfJam) return b._maneuverFrontOfJam - a._maneuverFrontOfJam;
-        return a.y - b.y;
+        if (a.y !== b.y) return a.y - b.y;
+        return b._maneuverFrontOfJam - a._maneuverFrontOfJam;
       });
       for (const c of maneuverCandidates) {
         if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) break;

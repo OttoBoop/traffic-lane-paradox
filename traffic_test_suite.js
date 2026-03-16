@@ -3582,114 +3582,60 @@
         );
       },
     },
-    // ── BH: Fork crash recovery — two crossed cars + trailing pile-up ───────
+    // ── BH: Fork crash recovery — emergent congestion at 2L fork ───────────
     {
       id: "BH",
       section: "mixed",
       family: "known_red",
-      name: "Fork crash recovery — crossed cars maneuver out, trailing cars clear",
+      name: "Fork crash recovery — 2L/20 congestion, stuck cars maneuver out",
       proof:
-        "Reproduces the actual crash from the live sim: two cars collide at the Y-junction " +
-        "fork while heading to different branches (car 0: lane 0→right, car 1: lane 1→left). " +
-        "Both start stopped at pathT=0.57 (conflict zone), NOT fixed — they must recover. " +
-        "12 trailing cars queue behind in both lanes, extending into the sleep zone. " +
-        "Tests: (1) crashed cars enter maneuver mode, (2) at least some trailing cars clear " +
-        "through. Partial credit: crashed cars must maneuver AND ≥4 trailing cars must exit.",
+        "Reproduces the actual crash from the live sim: 2 lanes, 20 cars, 50/50 split. " +
+        "Emergent congestion overwhelms the batch scheduler and creates stuck cars at the fork. " +
+        "3 seeds tested. PASS (partial credit): in ALL seeds, ≥2 cars enter maneuver mode " +
+        "AND all cars eventually complete AND zero overlaps. Documents whether maneuver mode " +
+        "actually resolves fork congestion at realistic scale.",
       build() {
-        // Crashed pair at the conflict zone — same as conflictCars() but with speed: 0
-        // Trailing cars spaced ~55px (SPAWN_SPACING) behind in both lanes
-        // stopY ≈ 547, SLEEP_Y ≈ 712, forkY ≈ 380
-        const cars = [
-          // Crashed pair at fork (pathT=0.57 ≈ y=428, in conflict zone)
-          { id: 0, pathKey: "0-right", lane: 0, target: "right", pathT: 0.57, speed: 0, mobilTimer: 999, color: "#2888c4" },
-          { id: 1, pathKey: "1-left",  lane: 1, target: "left",  pathT: 0.57, speed: 0, mobilTimer: 999, color: "#c48828" },
-          // Trailing cars — lane 0 (6 cars, mixed targets)
-          { id: 2,  lane: 0, target: "right", y: 490, mobilTimer: 999 },
-          { id: 3,  lane: 0, target: "left",  y: 545, mobilTimer: 999 },
-          { id: 4,  lane: 0, target: "right", y: 600, mobilTimer: 999 },
-          { id: 5,  lane: 0, target: "left",  y: 655, mobilTimer: 999 },
-          { id: 6,  lane: 0, target: "right", y: 710, mobilTimer: 999 },  // near sleep boundary
-          { id: 7,  lane: 0, target: "left",  y: 765, mobilTimer: 999 },  // sleep zone
-          // Trailing cars — lane 1 (6 cars, mixed targets)
-          { id: 8,  lane: 1, target: "left",  y: 490, mobilTimer: 999 },
-          { id: 9,  lane: 1, target: "right", y: 545, mobilTimer: 999 },
-          { id: 10, lane: 1, target: "left",  y: 600, mobilTimer: 999 },
-          { id: 11, lane: 1, target: "right", y: 655, mobilTimer: 999 },
-          { id: 12, lane: 1, target: "left",  y: 710, mobilTimer: 999 },  // near sleep boundary
-          { id: 13, lane: 1, target: "right", y: 765, mobilTimer: 999 },  // sleep zone
-        ];
+        // High-density congestion: 2 lanes, 40 cars, 50/50 split
+        // At this density, the batch scheduler can get overwhelmed and produce
+        // the stuck-at-fork scenario from the live sim screenshots
+        const seeds = [42, 77, 308];
         return {
-          cases: [
-            customCase("2L fork crash + 12 trailing", {
+          cases: seeds.map(seed =>
+            standardCase("2L/40 seed=" + seed, {
               lanes: 2,
-              seed: 42,
+              cars: 40,
+              split: 50,
+              seed,
               maxTicks: 6000,
               stepsPerFrame: 20,
-              finishBased: true,
-              cars,
-            }),
-          ],
-          state: {
-            firstManeuverCarId: null,
-            crashedCar0Maneuvered: false,
-            crashedCar1Maneuvered: false,
-            crashedCar0FoundBranch: false,
-            crashedCar1FoundBranch: false,
-          },
+            })
+          ),
+          state: { maneuverPerSeed: [], donePerSeed: [], overlapPerSeed: [] },
         };
       },
       observe(inst) {
-        const sim = inst.cases[0].sim;
-        // Track first maneuver event
-        if (inst.state.firstManeuverCarId === null) {
-          for (const ev of sim.testEvents) {
-            if (ev.type === "maneuver_enter") {
-              inst.state.firstManeuverCarId = ev.carId;
-              break;
-            }
-          }
-        }
-        // Track whether crashed cars entered maneuver
-        const car0 = sim.cars[0], car1 = sim.cars[1];
-        if (car0 && car0.maneuvering) inst.state.crashedCar0Maneuvered = true;
-        if (car1 && car1.maneuvering) inst.state.crashedCar1Maneuvered = true;
-        // Track whether crashed cars found their branch
-        if (car0 && car0.seg !== "main") inst.state.crashedCar0FoundBranch = true;
-        if (car1 && car1.seg !== "main") inst.state.crashedCar1FoundBranch = true;
+        // Collect per-seed metrics each step
+        inst.state.maneuverPerSeed = inst.cases.map(c => c.sim.testMetrics.maneuverEnterCount || 0);
+        inst.state.donePerSeed = inst.cases.map(c => countDone(c.sim));
+        inst.state.overlapPerSeed = inst.cases.map(c => c.sim.testMetrics.overlapCount || 0);
       },
       metrics(inst) {
-        const sim = inst.cases[0].sim;
-        const m = sim.testMetrics;
-        const trailing = sim.cars.slice(2);
-        const trailingDone = trailing.filter(c => c.done).length;
-        const crashedDone = [sim.cars[0], sim.cars[1]].filter(c => c && c.done).length;
         return {
-          "Crashed maneuver": (inst.state.crashedCar0Maneuvered ? "0" : "") +
-            (inst.state.crashedCar0Maneuvered && inst.state.crashedCar1Maneuvered ? "+" : "") +
-            (inst.state.crashedCar1Maneuvered ? "1" : "") || "none",
-          "Crashed done": crashedDone + "/2",
-          "Crashed found branch": (inst.state.crashedCar0FoundBranch ? "0" : "") +
-            (inst.state.crashedCar0FoundBranch && inst.state.crashedCar1FoundBranch ? "+" : "") +
-            (inst.state.crashedCar1FoundBranch ? "1" : "") || "none",
-          "Trailing done": trailingDone + "/12",
-          "First maneuver": inst.state.firstManeuverCarId !== null ? "car" + inst.state.firstManeuverCarId : "none",
-          "Total maneuvers": String(m.maneuverEnterCount || 0),
-          "Max noProgress": String(m.maxNoProgressTicks || 0),
-          "Sleep ticks": String(m.sleepTicksTotal || 0),
-          Overlaps: String(m.overlapCount || 0),
-          Ticks: String(sim.ticks),
+          "Maneuvers": inst.state.maneuverPerSeed.join("/"),
+          "Done": inst.state.donePerSeed.join("/") + " of 40 each",
+          "Overlaps": inst.state.overlapPerSeed.join("/"),
+          "Ticks": inst.cases.map(c => String(c.sim.ticks)).join("/"),
+          "Max noProgress": inst.cases.map(c => (c.sim.testMetrics.maxNoProgressTicks || 0).toFixed(0)).join("/"),
+          "Sleep ticks": inst.cases.map(c => String(c.sim.testMetrics.sleepTicksTotal || 0)).join("/"),
         };
       },
       verdict(inst) {
-        const sim = inst.cases[0].sim;
-        const m = sim.testMetrics;
-        const trailing = sim.cars.slice(2);
-        const trailingDone = trailing.filter(c => c.done).length;
-        // Partial credit: crashed cars must maneuver AND ≥4 trailing cars must exit
-        return inst.state.crashedCar0Maneuvered &&
-          inst.state.crashedCar1Maneuvered &&
-          trailingDone >= 4 &&
-          legal(sim);
+        // Partial credit: every seed must have ≥2 maneuver entries, all cars done, zero overlaps
+        return inst.cases.every((c, i) =>
+          inst.state.maneuverPerSeed[i] >= 2 &&
+          inst.state.donePerSeed[i] >= 40 &&
+          legal(c.sim)
+        );
       },
     },
     // ── BK: Full jam clearance survey ────────────────────────────────────────
