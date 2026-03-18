@@ -3139,6 +3139,102 @@
         return sim.testMetrics.overlapCount === 0 && inst.state.wallEscapes === 0;
       },
     },
+    // ── BI: Merge wall-squeeze spacing must stay above soft safety margin ──
+    {
+      id: "BI",
+      section: "collision",
+      family: "guard_green",
+      name: "Merge wall squeeze preserves same-lane spacing",
+      proof:
+        "Three-car snapshot derived from the failing AI jam. A right-turn leader is stalled " +
+        "near the fork while two trailing cars are already merging toward 2-right. The planner " +
+        "must not let the merge/commit squeeze collapse runtime same-lane spacing below 2px, " +
+        "even when the cars stay technically inside the walls.",
+      build() {
+        return {
+          cases: [
+            customCase("3L merge wall squeeze", {
+              lanes: 3,
+              seed: 1,
+              maxTicks: 40,
+              stepsPerFrame: 2,
+              cars: [
+                {
+                  id: 13,
+                  x: 110.123,
+                  y: 450.07,
+                  th: -1.565,
+                  lane: 1,
+                  target: "right",
+                  pathKey: "1-right",
+                  seg: "main",
+                  speed: 0.005,
+                  trafficMode: "commit",
+                  noProgressTicks: 87,
+                },
+                {
+                  id: 16,
+                  x: 109.182,
+                  y: 478.152,
+                  th: -1.563,
+                  lane: 1,
+                  target: "right",
+                  pathKey: "2-right",
+                  seg: "main",
+                  speed: 0.004,
+                  trafficMode: "free",
+                  merging: true,
+                  noProgressTicks: 9,
+                },
+                {
+                  id: 22,
+                  x: 115.635,
+                  y: 501.919,
+                  th: -1.288,
+                  lane: 1,
+                  target: "right",
+                  pathKey: "2-right",
+                  seg: "main",
+                  speed: 0,
+                  trafficMode: "free",
+                  merging: true,
+                  noProgressTicks: 9,
+                },
+              ],
+            }),
+          ],
+          state: { minGap: Infinity, minTick: null, worstPair: "none" },
+        };
+      },
+      observe(inst) {
+        const sim = inst.cases[0].sim;
+        for (const a of sim.cars) {
+          for (const b of sim.cars) {
+            if (a.id === b.id || a.done || b.done) continue;
+            const gap = sim._sameLaneRuntimeGap(a, b);
+            if (gap === Infinity || gap >= inst.state.minGap) continue;
+            inst.state.minGap = gap;
+            inst.state.minTick = sim.ticks;
+            inst.state.worstPair = `${a.id}->${b.id}`;
+          }
+        }
+      },
+      metrics(inst) {
+        const sim = inst.cases[0].sim;
+        return {
+          "Min same-lane gap":
+            (inst.state.minGap === Infinity ? 0 : inst.state.minGap).toFixed(2) + "px",
+          "Worst pair": inst.state.worstPair,
+          "Worst tick": inst.state.minTick === null ? "none" : String(inst.state.minTick),
+          "Planner illegal": String(sim.testMetrics.plannerIllegalCount),
+          "Wall escapes": String(sim.testMetrics.wallEscapeCount),
+        };
+      },
+      verdict(inst) {
+        const sim = inst.cases[0].sim;
+        return legal(sim) && inst.state.minGap >= 2;
+      },
+    },
     // ── BA: Bug 1 — Merging cars stuck mid-lane-change must enter maneuver ──
     {
       id: "BA",

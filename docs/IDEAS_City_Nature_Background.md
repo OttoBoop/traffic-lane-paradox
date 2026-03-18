@@ -39,6 +39,24 @@ These were identified during discovery but are explicitly out of scope for the c
 
 ---
 
+---
+
+### 4. Sheep on Farm Side (Session 2 — Not Selected)
+
+**What:** Add sheep as a fourth animal species — fluffy white clusters, 2–4 per pen.
+
+**Why deferred:** User selected cows, chickens, pigs. Sheep were offered but not chosen. Adding them would follow the same `_drawSheep(ctx, x, y, scale)` pattern as the other animals.
+
+---
+
+### 5. Parked Cars on Urban Side (Session 2 — Not Selected)
+
+**What:** Small top-down car rectangles parked in front of houses.
+
+**Why deferred:** Not selected during Session 2 discovery. Would follow the same prop-placement pattern as benches and lampposts.
+
+---
+
 ## Source
 
 These ideas were captured during the discovery phase for the City & Nature Background Theme but deferred for future implementation. See [DISCOVERY_City_Nature_Background.md](DISCOVERY_City_Nature_Background.md) Category 8 (Future Plans) for the original Q&A.

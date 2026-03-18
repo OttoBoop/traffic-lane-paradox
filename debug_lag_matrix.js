@@ -170,21 +170,29 @@ function runScenario(TC, scenario, options, seed) {
   let peakManeuvering = 0;
   let peakYielding = 0;
   let peakBatch = 0;
+  let peakTrafficPlanner = 0;
+  let peakTrafficPlannerFreeMode = 0;
   const startedAt = process.hrtime.bigint();
   for (let tick = 0; tick < options.ticks && !sim.finished; tick++) {
     sim.tick(options.dt, { v0: TC.V0_DEF });
     let maneuvering = 0;
     let yielding = 0;
     let batching = 0;
+    let trafficPlanner = 0;
+    let trafficPlannerFreeMode = 0;
     for (const car of sim.cars) {
       if (car.done || car.fixed) continue;
       if (car.maneuvering) maneuvering++;
       if (car.trafficMode === "yield") yielding++;
       if (car.trafficMode === "batch") batching++;
+      if (car.plannerMode === "traffic") trafficPlanner++;
+      if (car.plannerMode === "traffic" && car.trafficMode === "free") trafficPlannerFreeMode++;
     }
     if (maneuvering > peakManeuvering) peakManeuvering = maneuvering;
     if (yielding > peakYielding) peakYielding = yielding;
     if (batching > peakBatch) peakBatch = batching;
+    if (trafficPlanner > peakTrafficPlanner) peakTrafficPlanner = trafficPlanner;
+    if (trafficPlannerFreeMode > peakTrafficPlannerFreeMode) peakTrafficPlannerFreeMode = trafficPlannerFreeMode;
   }
 
   return {
@@ -195,11 +203,16 @@ function runScenario(TC, scenario, options, seed) {
     peakManeuvering,
     peakYielding,
     peakBatch,
+    peakTrafficPlanner,
+    peakTrafficPlannerFreeMode,
     maneuvers: sim.testMetrics.maneuverEnterCount,
     yields: sim.testMetrics.yieldEnterCount,
     maxNoProgress: Number(sim.testMetrics.maxNoProgressTicks.toFixed(1)),
     overlapCount: sim.testMetrics.overlapCount,
     wallEscapeCount: sim.testMetrics.wallEscapeCount,
+    fastPathHits: sim.fastPathHits || 0,
+    fastPathMisses: sim.fastPathMisses || 0,
+    trafficFastPathHits: sim.trafficFastPathHits || 0,
   };
 }
 
@@ -216,8 +229,20 @@ function aggregateRuns(runs, scenarioName) {
     avgPeakManeuvering: Number(avg("peakManeuvering").toFixed(2)),
     avgPeakYielding: Number(avg("peakYielding").toFixed(2)),
     avgPeakBatch: Number(avg("peakBatch").toFixed(2)),
+    avgPeakTrafficPlanner: Number(avg("peakTrafficPlanner").toFixed(2)),
+    avgPeakTrafficPlannerFreeMode: Number(avg("peakTrafficPlannerFreeMode").toFixed(2)),
     avgManeuvers: Number(avg("maneuvers").toFixed(2)),
     avgMaxNoProgress: Number(avg("maxNoProgress").toFixed(2)),
+    avgFastPathHitRate: Number(
+      (
+        runs.reduce((sum, run) => {
+          const total = run.fastPathHits + run.fastPathMisses;
+          return sum + (total ? run.fastPathHits / total : 0);
+        }, 0) /
+        runs.length * 100
+      ).toFixed(2)
+    ),
+    avgTrafficFastPathHits: Number(avg("trafficFastPathHits").toFixed(2)),
     anyOverlap: runs.some((run) => run.overlapCount > 0),
     anyWallEscape: runs.some((run) => run.wallEscapeCount > 0),
   };

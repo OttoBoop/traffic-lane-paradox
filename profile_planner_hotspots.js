@@ -132,6 +132,53 @@ function nsToMs(ns) {
   return ns / 1e6;
 }
 
+function createModeStats() {
+  return {
+    peakTrafficPlanner: 0,
+    peakTrafficPlannerFreeMode: 0,
+    peakTrafficPlannerManeuver: 0,
+    peakTrafficPlannerYield: 0,
+    peakTrafficPlannerBatch: 0,
+    peakTrafficPlannerHoldExit: 0,
+    peakTrafficPlannerMerging: 0,
+    peakTrafficPlannerConflict: 0,
+    peakTrafficPlannerWall: 0,
+    peakTrafficPlannerFollow: 0,
+    peakTrafficPlannerParallel: 0,
+  };
+}
+
+function summarizeTrafficPlannerModes(cars) {
+  const summary = {
+    trafficPlanner: 0,
+    trafficPlannerFreeMode: 0,
+    trafficPlannerManeuver: 0,
+    trafficPlannerYield: 0,
+    trafficPlannerBatch: 0,
+    trafficPlannerHoldExit: 0,
+    trafficPlannerMerging: 0,
+    trafficPlannerConflict: 0,
+    trafficPlannerWall: 0,
+    trafficPlannerFollow: 0,
+    trafficPlannerParallel: 0,
+  };
+  for (const car of cars) {
+    if (car.fixed || car.done || car.plannerMode !== "traffic") continue;
+    summary.trafficPlanner++;
+    if (car.trafficMode === "free") summary.trafficPlannerFreeMode++;
+    if (car.maneuvering) summary.trafficPlannerManeuver++;
+    if (car.trafficMode === "yield") summary.trafficPlannerYield++;
+    if (car.trafficMode === "batch") summary.trafficPlannerBatch++;
+    if (car.trafficMode === "hold_exit") summary.trafficPlannerHoldExit++;
+    if (car.merging) summary.trafficPlannerMerging++;
+    if (car.blockingKind === "conflict") summary.trafficPlannerConflict++;
+    if (car.blockingKind === "wall") summary.trafficPlannerWall++;
+    if (car.blockingKind === "follow") summary.trafficPlannerFollow++;
+    if (car.blockingKind === "parallel") summary.trafficPlannerParallel++;
+  }
+  return summary;
+}
+
 function formatBucket(bucket, extra = "") {
   const avgMs = bucket.calls ? nsToMs(bucket.ns) / bucket.calls : 0;
   const totalMs = nsToMs(bucket.ns);
@@ -148,22 +195,51 @@ function runScenario(TC, opts) {
     h: opts.height,
   });
   sim.start();
+  const modeStats = createModeStats();
   const start = process.hrtime.bigint();
   for (let tick = 0; tick < opts.ticks && !sim.finished; tick++) {
     sim.tick(opts.dt, { v0: TC.V0_DEF });
+    const modeSummary = summarizeTrafficPlannerModes(sim.cars);
+    for (const [key, value] of Object.entries(modeSummary)) {
+      const peakKey = `peak${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+      modeStats[peakKey] = Math.max(modeStats[peakKey] || 0, value);
+    }
   }
   const elapsedMs = nsToMs(Number(process.hrtime.bigint() - start));
-  return { sim, elapsedMs };
+  return {
+    sim,
+    elapsedMs,
+    fastPathHits: sim.fastPathHits || 0,
+    fastPathMisses: sim.fastPathMisses || 0,
+    nominalFastPathHits: sim.nominalFastPathHits || 0,
+    trafficFastPathHits: sim.trafficFastPathHits || 0,
+    modeStats,
+  };
 }
 
 function printRunSummary(label, result, stats) {
   const avgCandidates = stats.candidateSet.calls
     ? stats.candidateSet.totalCandidates / stats.candidateSet.calls
     : 0;
+  const totalFastPath = result.fastPathHits + result.fastPathMisses;
+  const fastPathRate = totalFastPath ? (result.fastPathHits / totalFastPath) * 100 : 0;
   console.log(`\n[${label}] ${result.elapsedMs.toFixed(2)} ms wall-clock`);
   console.log(
     `Sim: ticks=${result.sim.ticks.toFixed(0)} finished=${result.sim.finished ? "yes" : "no"} ` +
       `maneuvers=${result.sim.testMetrics.maneuverEnterCount} maxNoProgress=${result.sim.testMetrics.maxNoProgressTicks.toFixed(1)}`
+  );
+  console.log(
+    `Fast path: hits=${result.fastPathHits} misses=${result.fastPathMisses} ` +
+      `hitRate=${fastPathRate.toFixed(1)}% nominalHits=${result.nominalFastPathHits} trafficHits=${result.trafficFastPathHits}`
+  );
+  console.log(
+    `Traffic planner peaks: total=${result.modeStats.peakTrafficPlanner} free=${result.modeStats.peakTrafficPlannerFreeMode} ` +
+      `maneuver=${result.modeStats.peakTrafficPlannerManeuver} yield=${result.modeStats.peakTrafficPlannerYield} ` +
+      `batch=${result.modeStats.peakTrafficPlannerBatch} hold=${result.modeStats.peakTrafficPlannerHoldExit} merge=${result.modeStats.peakTrafficPlannerMerging}`
+  );
+  console.log(
+    `Traffic blocker peaks: conflict=${result.modeStats.peakTrafficPlannerConflict} wall=${result.modeStats.peakTrafficPlannerWall} ` +
+      `follow=${result.modeStats.peakTrafficPlannerFollow} parallel=${result.modeStats.peakTrafficPlannerParallel}`
   );
   console.log(`_candidateSet: ${formatBucket(stats.candidateSet, ` | ${avgCandidates.toFixed(2)} avg candidates`)}`);
   console.log(`_chooseBestLegalCandidate: ${formatBucket(stats.chooseBest)}`);

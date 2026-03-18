@@ -34,7 +34,7 @@
   const PROGRESS_RESUME_THRESH = 20;
   const PROGRESS_EPS = 0.35;
   const LANE_LOAD_LOOKAHEAD = 150;
-  const MAX_ACTIVE_MANEUVERS = 15;
+  const MAX_ACTIVE_MANEUVERS = 8;
   const SLEEP_STUCK_WAKE_THRESH = 30;
   const EARLY_EXIT_SCORE = 0.9;
   const YIELD_FULL_PLANNER_DIST = 60;
@@ -512,6 +512,7 @@
       this.rng = mkRng(seed ^ 0x5bd1e995);
       this.nextBatchId = 1; this.maxBatchSizeSeen = 0; this.spillbackViolations = 0; this.maxStarveTicks = 0;
       this.maneuverTriggerCount = 0; this.commitOscillationCount = 0; this.plannerIllegalCount = 0;
+      this.fastPathHits = 0; this.fastPathMisses = 0; this.nominalFastPathHits = 0; this.trafficFastPathHits = 0;
       this.yieldEntryCount = 0; this.holdExitEntryCount = 0; this.batchEntryCount = 0;
       this._initTestState();
     }
@@ -521,6 +522,7 @@
       this.rng = mkRng(this.seed ^ 0x5bd1e995);
       this.nextBatchId = 1; this.maxBatchSizeSeen = 0; this.spillbackViolations = 0; this.maxStarveTicks = 0;
       this.maneuverTriggerCount = 0; this.commitOscillationCount = 0; this.plannerIllegalCount = 0;
+      this.fastPathHits = 0; this.fastPathMisses = 0; this.nominalFastPathHits = 0; this.trafficFastPathHits = 0;
       this.yieldEntryCount = 0; this.holdExitEntryCount = 0; this.batchEntryCount = 0;
       this._initTestState();
       const R = mkRng(this.seed), n = this.nC, nL = Math.round(n * this.splitPct / 100);
@@ -890,6 +892,7 @@
       for (const zone of rd.conflictZones) this._assignBatchStates(active, zone, rd);
 
       let activeManeuverCount = active.filter(c => c.maneuvering).length;
+      const hasProgressingBatchCar = active.some(c => c.trafficMode === 'batch' && c.noProgressTicks < NO_PROGRESS_THRESH && !c.done);
       for (const c of mains) {
         if (c.fixed) {
           c.desSpd = 0; c.desSt = 0; c.speed = 0; c.steer = 0;
@@ -924,10 +927,12 @@
           (blockInfo.kind === 'parallel' && c.speed < 0.1) ||
           inFollowChain;
         const maneuverProgressThresh = c.trafficMode === 'yield' ? NO_PROGRESS_THRESH_YIELD : NO_PROGRESS_THRESH;
+        const suppressYieldManeuverPressure = c.trafficMode === 'yield' && hasProgressingBatchCar;
         let shouldAccumulate = this.started && blockedForProgress && c._progressDelta < PROGRESS_EPS && !c.done;
+        if (shouldAccumulate && suppressYieldManeuverPressure) {
+          shouldAccumulate = false;
+        }
         if (shouldAccumulate && c.trafficMode === 'yield') {
-          const batchCarProgressing = active.some(b => b.trafficMode === 'batch' && b.noProgressTicks < NO_PROGRESS_THRESH && !b.done);
-          if (batchCarProgressing) shouldAccumulate = false;
           // Fix 4: Queue is flowing if the car directly in front is moving
           if (shouldAccumulate && blockInfo.kind === 'follow' && blocker && blocker._progressDelta >= PROGRESS_EPS) {
             shouldAccumulate = false;
@@ -967,7 +972,7 @@
           const perpAngle = c.th + Math.PI / 2;
           c.maneuverPerpDir = { x: Math.cos(perpAngle) * sign, y: Math.sin(perpAngle) * sign };
         }
-        const canEnterManeuver = activeManeuverCount < MAX_ACTIVE_MANEUVERS;
+        const canEnterManeuver = activeManeuverCount < MAX_ACTIVE_MANEUVERS && !suppressYieldManeuverPressure;
         const shouldProbeForward =
           c.maneuvering ||
           (!c.done && blockedForProgress && c.trafficMode !== 'batch' && c.noProgressTicks >= maneuverProgressThresh && canEnterManeuver);
@@ -1653,7 +1658,9 @@
     }
 
     _candidatePose(c, speed, steer, dt) {
-      const pose = { x: c.x + speed * Math.cos(c.th) * dt, y: c.y + speed * Math.sin(c.th) * dt, th: c.th, speed, steer };
+      const cCos = c._tickCos !== undefined ? c._tickCos : Math.cos(c.th);
+      const cSin = c._tickSin !== undefined ? c._tickSin : Math.sin(c.th);
+      const pose = { x: c.x + speed * cCos * dt, y: c.y + speed * cSin * dt, th: c.th, speed, steer };
       if (Math.abs(speed) > 0.01) pose.th += (speed / WBASE) * Math.tan(steer) * dt;
       while (pose.th > Math.PI) pose.th -= 2 * Math.PI;
       while (pose.th < -Math.PI) pose.th += 2 * Math.PI;
@@ -1792,7 +1799,7 @@
     _isLegalPose(c, pose, rd, active, margin = PROJ_MARGIN) {
       if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
       if (this._poseOverlapsCars(c, pose, active, margin)) return false;
-      const poseCar = { ...c, x: pose.x, y: pose.y, th: pose.th };
+      const poseCar = { seg: c.seg, lane: c.lane, pathKey: c.pathKey, x: pose.x, y: pose.y, th: pose.th };
       for (const o of active) {
         if (o.id === c.id || o.done) continue;
         if (poseCar.seg !== o.seg) continue;
@@ -1812,7 +1819,7 @@
       const gapNeighbors = Array.isArray(neighbors) ? neighbors : neighbors.gapNeighbors;
       if (this._isPoseOutsideRoad(c, pose, rd, margin)) return false;
       if (this._poseOverlapsCarsNeighbors(pose, overlapNeighbors, margin)) return false;
-      const poseCar = { ...c, x: pose.x, y: pose.y, th: pose.th };
+      const poseCar = { seg: c.seg, lane: c.lane, pathKey: c.pathKey, x: pose.x, y: pose.y, th: pose.th };
       const isReverse = pose.speed !== undefined && pose.speed < 0;
       for (const o of gapNeighbors) {
         const gap = this._sameLaneRuntimeGap(poseCar, o);
@@ -1859,6 +1866,7 @@
       const desiredSteer = trafficContext.desiredSteer;
       const speedSign = desiredSpeed === 0 ? 1 : Math.sign(desiredSpeed);
       const speedMag = Math.abs(desiredSpeed);
+      const wallSqueezeMerge = c.merging && c.blockingKind === 'wall' && c.trafficMode === 'commit';
       const seen = new Set(), attempts = [];
       const addAttempt = (speed, steer) => {
         const clampedSteer = Math.max(-MAX_ST, Math.min(MAX_ST, steer));
@@ -1867,11 +1875,18 @@
         seen.add(key);
         attempts.push({ speed, steer: clampedSteer });
       };
+      if (wallSqueezeMerge) {
+        for (const scale of [0.35, 0.15]) {
+          addAttempt(speedSign * Math.max(speedMag * scale, 0.12), desiredSteer);
+        }
+        addAttempt(0, desiredSteer);
+      }
       addAttempt(desiredSpeed, desiredSteer);
       // P5: reduced from 6 to 4 speed scales — keep 0.1 for creeping in tight spots
       for (const scale of [0.85, 0.55, 0.25, 0.1]) addAttempt(desiredSpeed * scale, desiredSteer);
       // P5: reduced from 4 to 3 steer scales (keep all target steers for directional coverage)
-      for (const steer of trafficContext.targetSteers) for (const scale of [0.55, 0.35, 0.15]) {
+      const steerScales = wallSqueezeMerge ? [0.35, 0.15, 0.55] : [0.55, 0.35, 0.15];
+      for (const steer of trafficContext.targetSteers) for (const scale of steerScales) {
         addAttempt(speedSign * Math.max(speedMag * scale, 0.12), steer);
       }
       if (trafficContext.blockerSteer !== null) {
@@ -1907,6 +1922,22 @@
       return attempts.map(a => ({ speed: a.speed, steer: a.steer, pose: this._candidatePose(c, a.speed, a.steer, dt) }));
     }
 
+      _runtimeGapStats(poseCar, gapNeighbors) {
+        let minFrontGap = Infinity;
+        let minRearGap = Infinity;
+        for (const o of gapNeighbors) {
+          const frontGap = this._sameLaneRuntimeGap(poseCar, o);
+          if (frontGap < minFrontGap) minFrontGap = frontGap;
+          const rearGap = this._sameLaneRuntimeGap(o, poseCar);
+          if (rearGap < minRearGap) minRearGap = rearGap;
+        }
+        return {
+          minFrontGap,
+          minRearGap,
+          minGap: Math.min(minFrontGap, minRearGap),
+        };
+      }
+
     _ensureCandidatePathData(c, candidate) {
       if (candidate.pathQuery) return candidate.pathQuery;
       const pq = pathQuery(c.path, candidate.pose.x, candidate.pose.y, c.pathIdx);
@@ -1918,6 +1949,8 @@
     _scoreCandidate(c, candidate, trafficContext) {
       const pq = this._ensureCandidatePathData(c, candidate);
       const progress = candidate.pathProgress - trafficContext.baseProgress;
+      const wallSqueezeMerge = c.merging && c.blockingKind === 'wall' && c.trafficMode === 'commit';
+      const commitMerge = c.merging && c.trafficMode === 'commit';
       let score = progress * (c.trafficMode === 'maneuver' ? (trafficContext.forwardClear ? 12 : 0.5) : 8);
       score -= Math.abs(candidate.steer - trafficContext.desiredSteer) * (c.trafficMode === 'maneuver' ? 0.2 : 0.8);
       score -= Math.abs(candidate.speed - trafficContext.desiredSpeed) * (c.trafficMode === 'maneuver' ? 0.03 : 0.1);
@@ -1929,6 +1962,34 @@
       if (trafficContext.conflictProgress !== null && candidate.enterConflict && !trafficContext.canEnterConflict) score -= 1000;
       if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE) score -= (EXIT_CLEARANCE - trafficContext.targetClearance) * 4;
       if (c.commitUntilFork && c.trafficMode !== 'maneuver' && Math.abs(candidate.steer) > MAX_ST * 0.85) score -= 2;
+      if (wallSqueezeMerge) {
+        const cautiousSpeed = Math.max(trafficContext.desiredSpeed * 0.35, 0.12);
+        if (candidate.speed > cautiousSpeed) score -= 1.5;
+        if (candidate.speed > 0 && progress < PROGRESS_EPS * 0.5) score -= 1.0;
+        score -= Math.abs(candidate.steer) * 2.5;
+      }
+      if (commitMerge && candidate.gapStats) {
+        const softGap = 2;
+        const currentGapStats = trafficContext.currentGapStats;
+        if (candidate.gapStats.minFrontGap !== Infinity) {
+          if (candidate.gapStats.minFrontGap < softGap) {
+            score -= (softGap - candidate.gapStats.minFrontGap) * 120;
+            if (candidate.speed > 0) score -= 120;
+          }
+          if (currentGapStats && currentGapStats.minFrontGap !== Infinity) {
+            score += (candidate.gapStats.minFrontGap - currentGapStats.minFrontGap) * 40;
+          }
+        }
+        if (candidate.gapStats.minRearGap !== Infinity) {
+          if (candidate.gapStats.minRearGap < softGap) {
+            score -= (softGap - candidate.gapStats.minRearGap) * 40;
+            if (candidate.speed <= 0.12) score -= 80;
+          }
+          if (currentGapStats && currentGapStats.minRearGap !== Infinity) {
+            score += (candidate.gapStats.minRearGap - currentGapStats.minRearGap) * 55;
+          }
+        }
+      }
       if (trafficContext.blocker) {
         const curDist = Math.hypot(c.x - trafficContext.blocker.x, c.y - trafficContext.blocker.y);
         const newDist = Math.hypot(candidate.pose.x - trafficContext.blocker.x, candidate.pose.y - trafficContext.blocker.y);
@@ -1980,29 +2041,61 @@
     }
 
     _chooseBestLegalCandidate(c, trafficContext, dt) {
-      let best = { pose: { x: c.x, y: c.y, th: c.th }, speed: 0, steer: c.steer, score: -1e9 };
+      let best = { pose: { x: c.x, y: c.y, th: c.th }, speed: 0, steer: c.steer };
+      let bestScore = -1e9;
       let legalCount = 0;
       const candidates = this._candidateSet(c, trafficContext, dt);
       const neighbors = this._relevantLegalNeighbors(c, trafficContext.active, 30);
+      const gapNeighbors = Array.isArray(neighbors) ? neighbors : neighbors.gapNeighbors;
+      const commitMerge = c.merging && c.trafficMode === 'commit';
+      if (commitMerge && !trafficContext.currentGapStats) {
+        trafficContext.currentGapStats = this._runtimeGapStats(
+          { seg: c.seg, lane: c.lane, pathKey: c.pathKey, x: c.x, y: c.y, th: c.th },
+          gapNeighbors
+        );
+      }
       for (const candidate of candidates) {
         if (!this._isLegalPoseNeighbors(c, candidate.pose, trafficContext.rd, neighbors)) continue;
         if (trafficContext.conflictProgress !== null) this._ensureCandidatePathData(c, candidate);
         candidate.enterConflict = trafficContext.conflictProgress !== null && candidate.pathProgress >= trafficContext.conflictProgress - 2;
         if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
+        if (commitMerge) {
+          candidate.gapStats = this._runtimeGapStats(
+            { seg: c.seg, lane: c.lane, pathKey: c.pathKey, x: candidate.pose.x, y: candidate.pose.y, th: candidate.pose.th },
+            gapNeighbors
+          );
+          if (candidate.speed > 0 && candidate.gapStats.minFrontGap !== Infinity && candidate.gapStats.minFrontGap < 2) continue;
+        }
         legalCount++;
         candidate.score = this._scoreCandidate(c, candidate, trafficContext);
-        if (candidate.score > best.score) best = { ...candidate };
-        if (best.score >= EARLY_EXIT_SCORE) break;
+        if (candidate.score > bestScore) {
+          best = candidate;
+          bestScore = candidate.score;
+          if (bestScore >= EARLY_EXIT_SCORE) {
+            return { pose: best.pose, speed: best.speed, steer: best.steer };
+          }
+        }
       }
       if (legalCount === 0) {
-        for (const candidate of candidates.slice(0, 20)) {
+        for (let i = 0; i < Math.min(20, candidates.length); i++) {
+          const candidate = candidates[i];
           if (!this._isLegalPoseNeighbors(c, candidate.pose, trafficContext.rd, neighbors, 0)) continue;
           if (trafficContext.conflictProgress !== null) this._ensureCandidatePathData(c, candidate);
           candidate.enterConflict = trafficContext.conflictProgress !== null && candidate.pathProgress >= trafficContext.conflictProgress - 2;
           if (candidate.enterConflict && trafficContext.targetClearance < EXIT_CLEARANCE && candidate.speed >= 0 && !c.maneuvering) continue;
+          if (commitMerge) {
+            candidate.gapStats = this._runtimeGapStats(
+              { seg: c.seg, lane: c.lane, pathKey: c.pathKey, x: candidate.pose.x, y: candidate.pose.y, th: candidate.pose.th },
+              gapNeighbors
+            );
+            if (candidate.speed > 0 && candidate.gapStats.minFrontGap !== Infinity && candidate.gapStats.minFrontGap < 2) continue;
+          }
           legalCount++;
           candidate.score = this._scoreCandidate(c, candidate, trafficContext);
-          if (candidate.score > best.score) best = { ...candidate };
+          if (candidate.score > bestScore) {
+            best = candidate;
+            bestScore = candidate.score;
+          }
         }
       }
       if (legalCount === 0) {
@@ -2050,20 +2143,43 @@
       return { x: best.pose.x, y: best.pose.y, th: best.pose.th, speed: best.speed, steer: best.steer };
     }
 
+    _canUseTrafficFastPath(c, pose, dt, rd, active, neighbors) {
+      if (c.maneuvering) return false;
+      if (!this._isLegalPoseNeighbors(c, pose, rd, neighbors)) return false;
+      const baseProgress = this._pathProgress(c);
+      const nextProgress = this._pathProgress(c, pose);
+      const progressDelta = nextProgress - baseProgress;
+      if (c.trafficMode === 'hold_exit' && progressDelta > PROGRESS_EPS) return false;
+      const conflictProgress = c._conflictProgress ?? null;
+      if (conflictProgress !== null && nextProgress >= conflictProgress - 2) {
+        const canEnterConflict = c.trafficMode === 'batch' || c._assignedTrafficMode === 'batch';
+        const targetClearance = c._targetClearance ?? 1e9;
+        if (!canEnterConflict || targetClearance < EXIT_CLEARANCE) return false;
+      }
+      return true;
+    }
+
     _chooseLegalMove(c, dt, rd, active) {
       // P1 cache fix: neighbor positions may have changed since the pre-moveOrder maneuver exit
       // check. Clear the stale cache so this car uses committed neighbor positions for movement.
       c._cachedNeighbors = null;
+      const fastPose = this._candidatePose(c, c.desSpd, c.desSt, dt);
+      const neighbors = this._relevantLegalNeighbors(c, active);
       if (c.plannerMode === 'nominal') {
         // P4: Fast-path — try (desSpd, desSt) directly. Stanley output already minimizes
         // lane centering error, so if legal we accept immediately without tracking error check.
-        const fastPose = this._candidatePose(c, c.desSpd, c.desSt, dt);
-        const neighbors = this._relevantLegalNeighbors(c, active); // uses P1 cache
         if (this._isLegalPoseNeighbors(c, fastPose, rd, neighbors)) {
+          this.fastPathHits++; this.nominalFastPathHits++;
           return { x: fastPose.x, y: fastPose.y, th: fastPose.th, speed: c.desSpd, steer: c.desSt };
         }
+        this.fastPathMisses++;
         return this._chooseNominalMove(c, dt, rd, active);
       }
+      if (this._canUseTrafficFastPath(c, fastPose, dt, rd, active, neighbors)) {
+        this.fastPathHits++; this.trafficFastPathHits++;
+        return { x: fastPose.x, y: fastPose.y, th: fastPose.th, speed: c.desSpd, steer: c.desSt };
+      }
+      this.fastPathMisses++;
       return this._chooseTrafficMove(c, dt, rd, active);
     }
 

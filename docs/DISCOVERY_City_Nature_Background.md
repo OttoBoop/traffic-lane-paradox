@@ -2,8 +2,8 @@
 
 **Feature:** New "City & Nature" background theme for the Traffic Lane Paradox simulation
 **Date Started:** 2026-03-14
-**Status:** Complete
-**Categories Completed:** 9/9
+**Status:** Complete (Session 2 — Enhancement Pass)
+**Categories Completed:** 9/9 (Session 1 + Session 2 extensions approved)
 
 ---
 
@@ -359,6 +359,12 @@ T3 (dropdown) ─┘
 | Scale houses on narrow canvas | Edge Cases, Functional | Proportional scaling, not skip — keeps visual identity |
 | Display name in dropdown | Other, Functional | "Cidade & Natureza" — Portuguese, matches Brazilian context |
 | Success = Leo approval + theme switching | Core, Testing | FPS and road-focus are nice-to-haves, not hard gates |
+| V tree density must align with dark green ground zone | Functional, Edge Cases | Ground color zone and tree density zone must be co-located — visual layers must match |
+| Road overlap fix: zone clamping + per-element guard | Functional, Edge Cases, Constraints | Belt-and-suspenders: upfront zone definition + runtime guard per element |
+| Animal pen near barn + loose animals outside | Functional | Organic farmyard feel — not all animals enclosed, adds life |
+| Chicken coop + pond as standalone farm props | Functional | Additional farm structures beyond animals — context for the flock and a watering point |
+| Urban props don't change house code | Functional, Constraints | House drawing stays as-is; only surrounding props added |
+| Testing: overlap assertion + human gate | Testing, Edge Cases | Automated proof of no road overlap + visual quality gate — both required |
 
 ---
 
@@ -387,9 +393,168 @@ Cross-category review found **0 items** to address:
 
 ---
 
+---
+
+## Session 2 — Enhancement Pass (2026-03-15)
+
+New requirements to explore:
+- Barn animals on the nature side of the road
+- Increased tree density in the V intersection
+- Enhanced urban side design (new props, better houses)
+- Road overlap prevention (houses/props must not draw over road surface)
+- Additional new props (TBD)
+
+### Q&A Exchange — Session 2
+
+**S2-Q1: Animal visual style?**
+> Top-down, minimalistic, with shadows. Animals must be clearly recognizable as the animal species — cows have visible horns and color patches (black+white), chickens are distinct, etc. Same stylistic register as existing assets (tileset-inspired, top-down, canvas primitives + shadow). No abstract blobs — they must read as the actual animal.
+
+**Tags:** [Functional], [Constraints]
+
+**S2-Q2: New urban props?**
+> Mailboxes/fences, Benches/bus stops, Streetlights/lampposts. (Parked cars not selected.)
+
+**Tags:** [Functional]
+
+**S2-Q3: V intersection tree density?**
+> Pack it solid — virtually no gaps. IMPORTANT: the dense forest zone must spatially align with where the darker green background ground color already is. The visual layers (ground darkness and tree density) must be co-located.
+
+**Tags:** [Functional], [Edge Cases]
+
+**S2-Q4: Animal placement — pen or free?**
+> Both — a fenced pen near the barn with most animals inside it, plus 1–2 wandering loose outside. Organic yet readable.
+
+**Tags:** [Functional]
+
+**S2-Q5: Animal species?**
+> Cows, Chickens, Pigs. (Sheep not selected.)
+> - Cows: largest, black+white color patches, visible horns, 1–3 per farm zone
+> - Chickens: small flock of 4–8 tiny birds near a coop
+> - Pigs: medium, pink, snout detail, 2–4 per pen
+
+**Tags:** [Functional]
+
+**S2-Q6: Road overlap prevention approach?**
+> Both — zone clamping upfront (safe left band, safe right band derived from road geometry) PLUS per-element bounding box guard as safety net. Belt-and-suspenders.
+
+**Tags:** [Functional], [Edge Cases], [Constraints]
+
+**S2-Q7: Do houses themselves change visually?**
+> Props only — house drawing code stays as-is. Only the surrounding props (streetlights, benches, fences, mailboxes) change.
+
+**Tags:** [Functional], [Constraints]
+
+**S2-Q8: Streetlight placement?**
+> Both — a row along the road edge + a few interior ones between houses. Denser urban feel.
+
+**Tags:** [Functional]
+
+**S2-Q9: Barn changes?**
+> Minor refresh — same shape, tweak colors or add small details (hay bale dot, door mark) to better fit the animal farm context.
+
+**Tags:** [Functional]
+
+**S2-Q10: Fence style and placement?**
+> Short property-line segments between houses — small 3–5 segment fence lines suggesting property boundaries between adjacent plots. Not full perimeters, not every house.
+
+**Tags:** [Functional]
+
+**S2-Q11: Testing approach for new features?**
+> Full: screenshot review + automated road overlap assertion (no element center inside road polygon) + explicit human sign-off gate before marking done.
+
+**Tags:** [Testing]
+
+**S2-Q12: Any other new props?**
+> Add both — chicken coop structure (small rect near chicken flock, different roof color) + a pond/watering hole (small irregular blue shape on farm side near animals).
+
+**Tags:** [Functional]
+
+---
+
+### Session 2 — Summary ✅ (Approved)
+
+**New features confirmed:**
+- **Barn animals**: Top-down, minimal with shadows, clearly readable as species. Cows (horns + B&W patches), Chickens (small flock), Pigs (snout). Placed in a fenced pen near the barn + 1–2 loose animals outside. Style matches existing tileset-inspired assets.
+- **Chicken coop**: Small building rect near flock, distinct roof color.
+- **Farm pond**: Small irregular blue shape (watering hole) near animals on farm side.
+- **Barn refresh**: Minor — same shape, add hay bale dot + door mark, tweak colors.
+- **Urban props**: Streetlights (road edge + between houses), benches/bus stops, mailboxes, short property-line fence segments between some houses. Houses unchanged.
+- **V intersection**: Pack solid with trees. Zone must spatially align with the existing darker green ground color.
+- **Road overlap fix**: Zone clamping (safe left/right bands upfront) + per-element bounding box guard.
+- **Testing**: Screenshot review + automated road overlap assertion + human sign-off gate.
+
+### Session 2 — Parallelism Analysis ✅ (Approved)
+
+**Task List (Session 2):**
+
+| # | Task |
+|---|------|
+| S2-T1 | Road overlap fix — zone clamping + per-element guard |
+| S2-T2 | V intersection tree density — pack solid, aligned to dark green ground zone |
+| S2-T3 | Urban props — streetlights, benches, mailboxes, property-line fences |
+| S2-T4 | Barn minor refresh — hay bale dot, door mark, color tweak |
+| S2-T5 | Animal pen — fenced enclosure near barn + 1–2 loose animals |
+| S2-T6 | Animal drawing — top-down cow (horns + patches), chicken (flock), pig (snout) with shadows |
+| S2-T7 | Chicken coop structure — small building near chicken flock |
+| S2-T8 | Farm pond — small irregular blue shape near animals |
+| S2-T9 | Screenshots + automated road overlap assertion + human sign-off |
+
+**Dependency Table:**
+
+| Task | Depends On | Reasoning |
+|------|-----------|----------|
+| S2-T1 (road overlap fix) | None | Root task — modifies placement logic |
+| S2-T2 (V tree density) | None | Root task — modifies cluster count in V zone |
+| S2-T4 (barn refresh) | None | Root task — tweaks existing barn drawing |
+| S2-T6 (animal drawing) | None | Root task — animal primitives needed before placement |
+| S2-T8 (farm pond) | None | Root task — standalone shape on farm ground |
+| S2-T3 (urban props) | S2-T1 | Needs safe zones before placing props |
+| S2-T5 (animal pen) | S2-T4, S2-T6 | Needs barn position + animal shapes |
+| S2-T7 (chicken coop) | S2-T6 | Needs chicken flock position reference |
+| S2-T9 (testing) | All above | Needs everything landed |
+
+**Wave Structure:**
+
+```
+📦 Wave 1 (parallel): S2-T1 + S2-T2 + S2-T4 + S2-T6 + S2-T8
+   T1: road overlap fix     T2: V tree density
+   T4: barn refresh         T6: animal drawing primitives
+   T8: farm pond
+   Why grouped: All root tasks, no shared state.
+   Produces: Safe placement zones, denser V forest, refreshed barn,
+             animal drawing functions, pond shape.
+
+📦 Wave 2 (parallel): S2-T3 + S2-T5 + S2-T7
+   T3: urban props (needs safe zones from T1)
+   T5: animal pen + placement (needs T4 barn pos + T6 animal shapes)
+   T7: chicken coop structure (needs T6 flock position ref)
+   Why grouped: All depend on Wave 1 outputs but not on each other.
+   Produces: Full farm scene with animals + coop; full urban side with props.
+
+📦 Wave 3 (sequential): S2-T9
+   Screenshots + road overlap assertion + human sign-off
+   Why sequential: Needs everything landed to test.
+   Produces: Visual approval and overlap proof.
+```
+
+**Dependency Graph:**
+
+```
+S2-T1 (overlap fix) ──────────────────────────────────────────────┐
+S2-T2 (V density) ────────────────────────────────────────────────┤
+S2-T4 (barn refresh) ─────────────────────────────────────────────┤──► S2-T9 (testing)
+S2-T6 (animal drawing) ──► S2-T5 (pen) ──────────────────────────┤
+                       └──► S2-T7 (coop) ────────────────────────┤
+S2-T8 (pond) ─────────────────────────────────────────────────────┤
+S2-T1 ──────────────────► S2-T3 (urban props) ───────────────────┘
+```
+
+---
+
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-14 | Initial discovery — all 9 categories answered (condensed format) |
 | 2026-03-14 | Enhancement pass — restructured to full standard format. Added: per-category summaries with approval gates, tags on all Q&A, acceptance criteria table, reliability evidence section (gap matrix, tool inventory, risks), expanded connection map (9 entries), completeness score (6/6), Layer 3 cross-category review. New Q&A: house yards (mixed), tree style (_treeCluster reuse), road style (unchanged), narrow canvas (scale smaller), scene testing (screenshots + human gate), display name ("Cidade & Natureza"). |
+| 2026-03-15 | Session 2 — Enhancement pass. New features: barn animals (cows, chickens, pigs — top-down with shadows), chicken coop, farm pond, animal pen, barn minor refresh, urban props (streetlights, benches, mailboxes, property fences), V intersection packed solid + aligned to dark ground zone, road overlap prevention (zone clamping + per-element guard). 9 new tasks (S2-T1 through S2-T9) across 3 waves. Connection map extended to 17 entries. |

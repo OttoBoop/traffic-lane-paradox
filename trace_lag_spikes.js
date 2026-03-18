@@ -112,14 +112,73 @@ function summarizeModes(cars) {
   let yielding = 0;
   let batching = 0;
   let holdExit = 0;
+  let trafficPlanner = 0;
+  let nominalPlanner = 0;
+  let trafficPlannerFreeMode = 0;
+  let trafficPlannerManeuver = 0;
+  let trafficPlannerYield = 0;
+  let trafficPlannerBatch = 0;
+  let trafficPlannerHoldExit = 0;
+  let trafficPlannerMerging = 0;
+  let trafficPlannerConflict = 0;
+  let trafficPlannerWall = 0;
+  let trafficPlannerFollow = 0;
+  let trafficPlannerParallel = 0;
+  let blockingFollow = 0;
+  let blockingConflict = 0;
+  let blockingWall = 0;
+  let blockingParallel = 0;
+  let merging = 0;
   for (const car of cars) {
     if (car.fixed || car.done) continue;
     if (car.maneuvering) maneuvering++;
     if (car.trafficMode === "yield") yielding++;
     if (car.trafficMode === "batch") batching++;
     if (car.trafficMode === "hold_exit") holdExit++;
+    if (car.plannerMode === "traffic") {
+      trafficPlanner++;
+      if (car.trafficMode === "free") trafficPlannerFreeMode++;
+      if (car.maneuvering) trafficPlannerManeuver++;
+      if (car.trafficMode === "yield") trafficPlannerYield++;
+      if (car.trafficMode === "batch") trafficPlannerBatch++;
+      if (car.trafficMode === "hold_exit") trafficPlannerHoldExit++;
+      if (car.merging) trafficPlannerMerging++;
+      if (car.blockingKind === "conflict") trafficPlannerConflict++;
+      if (car.blockingKind === "wall") trafficPlannerWall++;
+      if (car.blockingKind === "follow") trafficPlannerFollow++;
+      if (car.blockingKind === "parallel") trafficPlannerParallel++;
+    } else {
+      nominalPlanner++;
+    }
+    if (car.blockingKind === "follow") blockingFollow++;
+    if (car.blockingKind === "conflict") blockingConflict++;
+    if (car.blockingKind === "wall") blockingWall++;
+    if (car.blockingKind === "parallel") blockingParallel++;
+    if (car.merging) merging++;
   }
-  return { maneuvering, yielding, batching, holdExit };
+  return {
+    maneuvering,
+    yielding,
+    batching,
+    holdExit,
+    trafficPlanner,
+    nominalPlanner,
+    trafficPlannerFreeMode,
+    trafficPlannerManeuver,
+    trafficPlannerYield,
+    trafficPlannerBatch,
+    trafficPlannerHoldExit,
+    trafficPlannerMerging,
+    trafficPlannerConflict,
+    trafficPlannerWall,
+    trafficPlannerFollow,
+    trafficPlannerParallel,
+    blockingFollow,
+    blockingConflict,
+    blockingWall,
+    blockingParallel,
+    merging,
+  };
 }
 
 function main() {
@@ -171,7 +230,10 @@ function main() {
   console.log("Top slow ticks:");
   topRows.forEach((row) => {
     console.log(
-      `- tick=${row.tick} ${row.elapsedMs}ms active=${row.activeCars} man=${row.maneuvering} y=${row.yielding} b=${row.batching} hold=${row.holdExit} ` +
+      `- tick=${row.tick} ${row.elapsedMs}ms active=${row.activeCars} traffic=${row.trafficPlanner} freeTraffic=${row.trafficPlannerFreeMode} ` +
+        `man=${row.maneuvering} y=${row.yielding} b=${row.batching} hold=${row.holdExit} ` +
+        `trafficReasons[m=${row.trafficPlannerManeuver} y=${row.trafficPlannerYield} b=${row.trafficPlannerBatch} hold=${row.trafficPlannerHoldExit} merge=${row.trafficPlannerMerging} conflict=${row.trafficPlannerConflict} wall=${row.trafficPlannerWall} follow=${row.trafficPlannerFollow} parallel=${row.trafficPlannerParallel}] ` +
+        `follow=${row.blockingFollow} conflict=${row.blockingConflict} wall=${row.blockingWall} parallel=${row.blockingParallel} merge=${row.merging} ` +
         `choose=${row.chooseBest} cand=${row.candidateSet} forward=${row.hasForward} ` +
         `legal=${row.legalPose} legalN=${row.legalPoseNeighbors} maxNoProgress=${row.maxNoProgress}`
     );
