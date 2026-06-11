@@ -2625,9 +2625,82 @@
       ctx.scale(scale, scale);
       this._ensureSceneBuf(rd, logicalW, logicalH);
       if (this._sceneBuf) ctx.drawImage(this._sceneBuf, 0, 0);
-      this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH); ctx.restore();
+      this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH);
+      this._animLayer(rd, logicalW, logicalH);
+      this._lastView = { scale, offsetX, offsetY, logicalW, logicalH };
+      ctx.restore();
+    }
+    // ── Animation layer — lightweight per-frame sprites over the static buffer.
+    // All sprites are stateless functions of Date.now() + _animAnchors; nothing
+    // here touches Sim/Car state, so determinism is untouched (same pattern as
+    // the blinker pulse in _car).
+    _animLayer(rd, w, h) {
+      const sc = this.theme.scene;
+      if (sc === 'classic' || sc === 'rio_satellite') return;
+      const ctx = this.ctx, tNow = Date.now();
+      const a = this._animAnchors;
+      ctx.save();
+      if (a) {
+        // Chimney smoke — 3 rising, fading, drifting puffs per chimney
+        for (let i = 0; i < a.chimneys.length; i++) {
+          const ch = a.chimneys[i];
+          for (let p = 0; p < 3; p++) {
+            const phase = ((tNow / 1800) + p / 3 + i * 0.37) % 1;
+            const px = ch.x + Math.sin((phase * 4 + i) * Math.PI) * 1.6;
+            const py = ch.y - 1 - phase * 9;
+            const pr = 0.8 + phase * 1.8;
+            ctx.globalAlpha = (1 - phase) * (sc === 'night' ? 0.30 : 0.40);
+            ctx.fillStyle = sc === 'night' ? '#aab4c8' : '#e8e4dc';
+            ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+        // Swaying canopies — soft patches oscillating over the static forest
+        for (let i = 0; i < a.canopies.length; i++) {
+          const cp = a.canopies[i];
+          const sway = Math.sin(tNow / 900 + i * 1.7) * 1.1;
+          ctx.globalAlpha = 0.45;
+          ctx.fillStyle = sc === 'snow' ? '#e8f1f4' : (sc === 'night' ? '#264433' : '#57905d');
+          ctx.beginPath(); ctx.ellipse(cp.x + sway, cp.y, cp.r, cp.r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        // Pond ripples — expanding fading rings (skipped on the frozen snow pond)
+        if (a.pond && sc !== 'snow') {
+          const p = a.pond;
+          for (let rI = 0; rI < 2; rI++) {
+            const phase = ((tNow / 2400) + rI / 2) % 1;
+            ctx.globalAlpha = (1 - phase) * 0.35;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y, p.rx * (0.25 + phase * 0.6), p.ry * (0.25 + phase * 0.6), 0.15, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+      }
+      if (sc === 'night') {
+        // Twinkling subset of the scene's deterministic star field
+        for (let i = 0; i < 70; i += 3) {
+          const sx = (i * 61.8033) % w;
+          const sy = ((i * 37.519 + (i % 7) * 11.3) % (h * 0.96));
+          ctx.globalAlpha = (0.5 + 0.5 * Math.sin(tNow / 700 + i * 2.1)) * 0.55;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.arc(sx, sy, 0.55 + (i % 3) * 0.25, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      if (sc === 'snow') {
+        // Falling snowflakes — wrap vertically, drift sideways
+        for (let i = 0; i < 60; i++) {
+          const speed = 14 + (i % 5) * 5;
+          const fy = ((tNow / 1000) * speed + i * 73.7) % (h + 12) - 6;
+          const fx = (((i * 53.17 + Math.sin(tNow / 1300 + i) * 5) % w) + w) % w;
+          ctx.globalAlpha = 0.5 + (i % 3) * 0.15;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.arc(fx, fy, 0.7 + (i % 3) * 0.4, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.restore();
     }
     _scene(rd, w, h) {
+      this._animAnchors = null; // rio has no animated anchors; clear stale city_nature ones
       const ctx = this.ctx, t = this.theme, m = this._sceneMetrics(rd, w, h);
       const houseW = 30 * m.houseScale, houseH = 18 * m.houseScale, poolW = 22 * m.houseScale, poolH = 12 * m.houseScale;
       const churchBodyW = Math.min(m.wedgeWidth * 0.20, 20 * m.churchScale);

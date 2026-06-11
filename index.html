@@ -602,6 +602,19 @@
     $('themeSelect').onchange = e => { const key = e.target.value; const th = RENDER_THEMES[key]; if (!th) return; rens.forEach(r => { r.theme = th; r._invalidateSceneBuf(); }); renderAll(); };
     $('langPt').onclick = () => applyLang('pt');
     $('langEn').onclick = () => applyLang('en');
+    /* Idle render loop: keeps scene animations (smoke, snowfall, twinkle) and
+       hover tooltips alive while paused. renderAll() never ticks the sims, so
+       timers and car positions stay frozen. ~30fps, skipped while running. */
+    let lastIdle = 0;
+    function idleLoop(time) {
+      if (!gRun && time - lastIdle > 33) {
+        lastIdle = time;
+        const key = ($('themeSelect') || {}).value;
+        if (key && key !== 'classic' && key !== 'rioSatellite') renderAll();
+      }
+      requestAnimationFrame(idleLoop);
+    }
+    requestAnimationFrame(idleLoop);
     build();
   </script>
 </body>
