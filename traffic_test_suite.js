@@ -4209,6 +4209,37 @@
         return inst.state.gridWired && inst.state.checks > 0 && inst.state.mismatches === 0;
       },
     },
+    // ─── Card BR: Night/Snow themes + Session-2 leftover primitives exist ─────
+    {
+      id: "BR",
+      section: "mixed",
+      family: "guard_green",
+      name: "Night & Snow themes — scene methods, theme entries, sheep + parked car primitives",
+      proof:
+        "Ren.prototype must have _sceneNight, _sceneSnow, _drawSheep, _drawParkedCar " +
+        "(all functions), and RENDER_THEMES.night / RENDER_THEMES.snow must exist with " +
+        "a `scene` key each.",
+      build() {
+        const methods = ["_sceneNight", "_sceneSnow", "_drawSheep", "_drawParkedCar"];
+        const results = methods.map((name) => ({
+          name,
+          exists: typeof TC.Ren.prototype[name] === "function",
+        }));
+        const themes = ["night", "snow"].map((key) => ({
+          name: `RENDER_THEMES.${key}`,
+          exists: !!(TC.RENDER_THEMES[key] && TC.RENDER_THEMES[key].scene),
+        }));
+        return { cases: [], state: { results: results.concat(themes) } };
+      },
+      metrics(inst) {
+        const out = {};
+        for (const r of inst.state.results) out[r.name] = r.exists ? "YES" : "NO";
+        return out;
+      },
+      verdict(inst) {
+        return inst.state.results.every((r) => r.exists);
+      },
+    },
   ];
 
   const FAMILY_META = {
