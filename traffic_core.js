@@ -32,6 +32,12 @@
   const EXIT_CLEARANCE = CAR_L * 2;
   const MAX_BATCH_SIZE = 2;
   const BATCH_HOLD_TICKS = 24;
+  // Crossing caution: when opposite-target traffic is present at a conflict zone,
+  // crossing cars cap desSpd to CONFLICT_CROSS_SPEED × v0 while traversing it.
+  // 1 disables the cap entirely. Same-target-only and single-lane flow never
+  // trigger it (no opposite car / no conflict zones).
+  const CONFLICT_CROSS_SPEED = 1;
+  const CONFLICT_GUARD_SPAN = CAR_L * 3;
   const NO_PROGRESS_THRESH = 60;
   const NO_PROGRESS_THRESH_YIELD = 480;
   const PROGRESS_RESUME_THRESH = 20;
@@ -138,6 +144,96 @@
       stopLightStop: '#bb1818',
       stopLightRing: '#3a3d42',
       queueText: '#555'
+    },
+    // NOITE — city_nature geometry under a night veil: lit lamp halos, house
+    // glow, stars + moon overlays, car headlights (scene 'night' in Ren._car).
+    night: {
+      scene: 'night',
+      canvas: '#0b1026',
+      urbanGround: '#272c3a',
+      grassGround: '#1c2b22',
+      grassLight: '#27392c',
+      forestDark: '#0e1c14',
+      forest: '#1a3324',
+      forestAlt: '#264433',
+      farmRow: '#2e4434',
+      farmFence: '#4a3c2c',
+      fieldA: '#22331f',
+      fieldB: '#2a3a24',
+      fieldC: '#33402c',
+      barnWall: '#5a2820',
+      barnRoof: '#3a1812',
+      barnDoor: '#2a1008',
+      pond: '#1c3a50',
+      pondEdge: '#16303f',
+      fence: '#3c2c1a',
+      houseWalls: ['#9a8e78', '#8a7058', '#7a5848', '#9c9480'],
+      houseSides: ['#7a705c', '#6a543e', '#5c4434', '#7c7460'],
+      houseRoofs: ['#4a2c14', '#54301c', '#3c2418', '#44301e'],
+      houseShadow: 'rgba(0, 0, 10, 0.45)',
+      windowColor: '#ffd978',
+      windowFrame: '#2a2218',
+      doorColor: '#33220e',
+      yardGreen: '#27392a',
+      yardBrown: '#3c3528',
+      sidewalk: '#3c3f4a',
+      fountainWater: '#2c5a74',
+      fountainRing: '#4c4438',
+      roadFill: '#383d47',
+      roadGuide: 'rgba(255, 244, 200, 0.38)',
+      roadDivider: '#e8dca0',
+      roadStroke: '#23262e',
+      stopGo: '#1f4a26',
+      stopStop: '#4a1a16',
+      stopLightGo: '#3fe06f',
+      stopLightStop: '#ff5f4a',
+      stopLightRing: '#161a24',
+      queueText: '#8a93a8'
+    },
+    // NEVE — city_nature geometry under snow: white ground, snow-capped roofs
+    // and pines, frozen pond, falling snowflakes (animation layer).
+    snow: {
+      scene: 'snow',
+      canvas: '#dfe7f0',
+      urbanGround: '#d8dee8',
+      grassGround: '#eef3f8',
+      grassLight: '#f6f9fc',
+      forestDark: '#9db4ab',
+      forest: '#3f6b52',
+      forestAlt: '#e8f1f4',
+      farmRow: 'rgba(130, 150, 170, 0.45)',
+      farmFence: '#7a6a52',
+      fieldA: '#e6edf4',
+      fieldB: '#f2f6fa',
+      fieldC: '#d9e3ee',
+      barnWall: '#8b3a2a',
+      barnRoof: '#6b3022',
+      barnDoor: '#4a1a0e',
+      fence: '#6b4e2e',
+      pond: '#bcd8e8',
+      pondEdge: '#8fb4c8',
+      houseWalls: ['#e8e2d4', '#d4b894', '#c89078', '#ece6d8'],
+      houseSides: ['#c8c0a8', '#b09068', '#a87858', '#ccc4ac'],
+      houseRoofs: ['#a86848', '#b87858', '#8a5a44', '#986a52'],
+      houseShadow: 'rgba(70, 90, 120, 0.25)',
+      windowColor: 'rgba(255, 226, 150, 0.85)',
+      windowFrame: '#5a4a38',
+      doorColor: '#6a4a2e',
+      yardGreen: '#e2ecf2',
+      yardBrown: '#d8dce4',
+      sidewalk: '#c8d0dc',
+      fountainWater: '#a8cce0',
+      fountainRing: '#a89c84',
+      roadFill: '#6a7076',
+      roadGuide: 'rgba(240, 244, 248, 0.45)',
+      roadDivider: '#eef2f6',
+      roadStroke: '#4a5056',
+      stopGo: '#2a5a3a',
+      stopStop: '#6a2a24',
+      stopLightGo: '#2fc262',
+      stopLightStop: '#e05a4a',
+      stopLightRing: '#4a5056',
+      queueText: '#5a6878'
     }
   };
 
@@ -1182,7 +1278,25 @@
         }
       }
 
+      // Crossing-caution pre-pass: flag, per conflict zone, which targets have a car
+      // inside the guard span. Skipped entirely at CONFLICT_CROSS_SPEED = 1.
+      if (CONFLICT_CROSS_SPEED < 1) {
+        for (const zone of rd.conflictZones) { zone._crossLeft = false; zone._crossRight = false; }
+        for (const o of mains) {
+          if (o.fixed) continue;
+          for (const zone of rd.conflictZones) {
+            const zi = zone.paths.get(o.pathKey);
+            if (zi === undefined) continue;
+            const dp = (zi - o.pathIdx) * PATH_SP;
+            if (dp > -CONFLICT_GUARD_SPAN && dp < CONFLICT_GUARD_SPAN) {
+              if (o.target === 'left') zone._crossLeft = true; else zone._crossRight = true;
+            }
+          }
+        }
+      }
+
       for (const c of mains) {
+        c._crossCaution = false;
         if (c.fixed) { c._conflictProgress = null; c._targetClearance = 1e9; continue; }
         let conflictProgress = null;
         for (const zone of rd.conflictZones) {
@@ -1200,6 +1314,13 @@
             const gap = Math.max(dp - CAR_L * 0.5, 0.1);
             const brakeSpd = c.speed + Math.max(idm(c.speed, 0, gap, c.speed), -IDM_B * 5) * dt;
             c.desSpd = Math.min(c.desSpd, Math.max(0, brakeSpd));
+          }
+          if (CONFLICT_CROSS_SPEED < 1 && dp > -CONFLICT_GUARD_SPAN && dp < CONFLICT_GUARD_SPAN) {
+            const opposite = c.target === 'left' ? zone._crossRight : zone._crossLeft;
+            if (opposite) {
+              c.desSpd = Math.min(c.desSpd, P.v0 * CONFLICT_CROSS_SPEED);
+              c._crossCaution = true;
+            }
           }
         }
         if (c.trafficMode === 'batch') {
@@ -1227,7 +1348,8 @@
       const noSchedulerActive = !rd.conflictZones.some(z => z.schedulerEnabled);
       for (const c of active) {
         if (c.seg !== 'main' && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
-        if (c.seg === 'main' && noSchedulerActive && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
+        // Crossing-caution cars are exempt from the main-segment floor — it would undo the cap.
+        if (c.seg === 'main' && noSchedulerActive && !c._crossCaution && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
       }
 
       for (const c of active) {
@@ -2471,6 +2593,8 @@
       this.ctx = bCtx;
       if (sc === 'rio_satellite') this._scene(rd, lw, lh);
       else if (sc === 'city_nature') this._sceneCityNature(rd, lw, lh, bCtx);
+      else if (sc === 'night') this._sceneNight(rd, lw, lh, bCtx);
+      else if (sc === 'snow') this._sceneSnow(rd, lw, lh, bCtx);
       this.ctx = origCtx;
       this._sceneBuf = buf;
       this._sceneBufW = lw;
@@ -2914,6 +3038,9 @@
       const zones = this._safeZones(rd, w, 6);
       const roadL = rd.cx - m.roadHalf;
       const roadR = rd.cx + m.roadHalf;
+      // Anchors recorded while placing scene elements — consumed by the night/snow
+      // overlay passes and the per-frame animation layer (smoke, ripples, halos).
+      const anchors = this._animAnchors = { lamps: [], chimneys: [], houses: [], pond: null, barn: null, canopies: [] };
 
       // ── Ground zones ──────────────────────────────────
       // ABOVE fork: both sides are nature (green)
@@ -3040,12 +3167,21 @@
       const barnX = farmL + farmW * 0.32;
       const barnY = farmTop + farmH * 0.35;
       this._drawTopDownBarn(ctx, barnX, barnY, barnW, barnH, t);
+      anchors.barn = { x: barnX, y: barnY, w: barnW, h: barnH };
 
       // Pond — using _drawPond primitive
       const pondCx = farmL + farmW * 0.78;
       const pondCy = farmTop + farmH * 0.82;
       const pondRx = 12 * m.baseScale, pondRy = 8 * m.baseScale;
       this._drawPond(ctx, pondCx, pondCy, pondRx, pondRy);
+      anchors.pond = { x: pondCx, y: pondCy, rx: pondRx, ry: pondRy };
+      // Canopy sway anchors — a few prominent V-area / upper-forest cluster spots
+      anchors.canopies.push(
+        { x: m.wedgeCenterX, y: rd.forkY - (rd.forkY - m.topWedgeY) * 0.20, r: 5.5 },
+        { x: m.wedgeCenterX - Math.max(22, m.wedgeWidth * 0.52) * 0.34, y: rd.forkY - (rd.forkY - m.topWedgeY) * 0.42, r: 4.5 },
+        { x: roadL * 0.42, y: rd.forkY * 0.28, r: 4 },
+        { x: w * 0.74, y: rd.forkY * 0.30, r: 4.5 }
+      );
 
       // Fenced animal pen — using _drawAnimalPen primitive
       const fX = farmL + farmW * 0.05, fY = farmTop + farmH * 0.58;
@@ -3144,6 +3280,11 @@
           ctx.fillRect(p.x - yp, p.y - yp, p.tw + yp * 2, p.h + yp * 2);
         }
         this._drawTopDownHouse(ctx, p.x, p.y, p.w, p.h, t, p.ci, p.chim);
+        anchors.houses.push({ x: p.x, y: p.y, w: p.w, h: p.h });
+        if (p.chim) {
+          const chS = Math.min(p.w, p.h) * 0.18;
+          anchors.chimneys.push({ x: p.x + p.w * 0.7 + chS / 2, y: p.y + p.h * 0.15 });
+        }
       }
 
       // ── Benches + mailboxes near houses (F8-T4) ──
@@ -3224,6 +3365,7 @@
       const lampX = zones.left.max - 2; // just inside left safe zone, adjacent to road
       for (let ly = urbanTop + 8; ly < urbanBot - 8; ly += lampSpacing) {
         this._drawLamppost(ctx, lampX, ly, hScale);
+        anchors.lamps.push({ x: lampX, y: ly - 8 * hScale });
       }
 
       // ── Interior lampposts (F8-T3) — scattered between house clusters ──
@@ -3241,7 +3383,99 @@
         }
         if (tooClose) continue;
         this._drawLamppost(ctx, lx, ly, hScale * 0.85);
+        anchors.lamps.push({ x: lx, y: ly - 8 * hScale * 0.85 });
         interiorPlaced++;
+      }
+    }
+
+    // ── NOITE: city_nature scene + night overlay (veil, stars, moon, halos) ──
+    _sceneNight(rd, w, h, ctx) {
+      this._sceneCityNature(rd, w, h, ctx);
+      const a = this._animAnchors;
+      // Night veil — darkens the daytime geometry uniformly
+      ctx.fillStyle = 'rgba(8, 12, 34, 0.46)';
+      ctx.fillRect(0, 0, w, h);
+      // Stars — deterministic golden-angle scatter, denser near the top
+      for (let i = 0; i < 70; i++) {
+        const sx = (i * 61.8033) % w;
+        const sy = ((i * 37.519 + (i % 7) * 11.3) % (h * 0.96));
+        const sr = 0.35 + (i % 3) * 0.28;
+        ctx.fillStyle = `rgba(245, 248, 255, ${0.35 + (i % 5) * 0.12})`;
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+      }
+      // Moon — top-right, clear of the road
+      const moonX = Math.min(w - 14, rd.cx + rd.halfW() + (w - rd.cx - rd.halfW()) * 0.62);
+      const moonY = h * 0.055;
+      const moonR = Math.max(5, Math.min(9, w * 0.035));
+      const mg = ctx.createRadialGradient(moonX, moonY, moonR * 0.4, moonX, moonY, moonR * 3.2);
+      mg.addColorStop(0, 'rgba(250, 248, 230, 0.55)');
+      mg.addColorStop(1, 'rgba(250, 248, 230, 0)');
+      ctx.fillStyle = mg;
+      ctx.beginPath(); ctx.arc(moonX, moonY, moonR * 3.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f4f0da';
+      ctx.beginPath(); ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(180, 180, 160, 0.35)';
+      ctx.beginPath(); ctx.arc(moonX - moonR * 0.3, moonY - moonR * 0.15, moonR * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(moonX + moonR * 0.25, moonY + moonR * 0.3, moonR * 0.15, 0, Math.PI * 2); ctx.fill();
+      // Warm window-light spill around houses (post-veil so it reads as lit)
+      for (const p of a.houses) {
+        const gx = p.x + p.w / 2, gy = p.y + p.h / 2;
+        const gr = Math.max(p.w, p.h) * 1.15;
+        const hg = ctx.createRadialGradient(gx, gy, gr * 0.25, gx, gy, gr);
+        hg.addColorStop(0, 'rgba(255, 214, 120, 0.22)');
+        hg.addColorStop(1, 'rgba(255, 214, 120, 0)');
+        ctx.fillStyle = hg;
+        ctx.beginPath(); ctx.arc(gx, gy, gr, 0, Math.PI * 2); ctx.fill();
+      }
+      // Lamppost halos
+      for (const lp of a.lamps) {
+        const lg = ctx.createRadialGradient(lp.x, lp.y, 1, lp.x, lp.y, 10);
+        lg.addColorStop(0, 'rgba(255, 230, 130, 0.50)');
+        lg.addColorStop(1, 'rgba(255, 230, 130, 0)');
+        ctx.fillStyle = lg;
+        ctx.beginPath(); ctx.arc(lp.x, lp.y, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffe9a0';
+        ctx.beginPath(); ctx.arc(lp.x, lp.y, 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // ── NEVE: city_nature scene + snow overlay (roof caps, frozen pond, speckle) ──
+    _sceneSnow(rd, w, h, ctx) {
+      this._sceneCityNature(rd, w, h, ctx);
+      const a = this._animAnchors;
+      // Snow caps on house roofs — white band over the upper half of each roof
+      for (const p of a.houses) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+        ctx.fillRect(p.x - 1.5, p.y - 1.5, p.w + 3, (p.h + 3) * 0.52);
+        ctx.fillStyle = 'rgba(235, 242, 250, 0.5)';
+        ctx.fillRect(p.x - 1.5, p.y - 1.5 + (p.h + 3) * 0.52, p.w + 3, (p.h + 3) * 0.16);
+      }
+      // Snow cap on the barn
+      if (a.barn) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+        ctx.fillRect(a.barn.x - 2, a.barn.y - 2, a.barn.w + 4, (a.barn.h + 4) * 0.45);
+      }
+      // Frozen pond — icy sheen + cracks
+      if (a.pond) {
+        const p = a.pond;
+        ctx.fillStyle = 'rgba(240, 248, 255, 0.55)';
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, p.rx, p.ry, 0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(160, 190, 215, 0.8)';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(p.x - p.rx * 0.6, p.y - p.ry * 0.2);
+        ctx.lineTo(p.x + p.rx * 0.1, p.y + p.ry * 0.15);
+        ctx.lineTo(p.x + p.rx * 0.55, p.y - p.ry * 0.3);
+        ctx.moveTo(p.x - p.rx * 0.15, p.y - p.ry * 0.55);
+        ctx.lineTo(p.x + p.rx * 0.05, p.y + p.ry * 0.5);
+        ctx.stroke();
+      }
+      // Ground speckle — subtle cool dots for snow texture (deterministic scatter)
+      for (let i = 0; i < 150; i++) {
+        const sx = (i * 73.137) % w;
+        const sy = (i * 41.77 + (i % 5) * 17.9) % h;
+        ctx.fillStyle = i % 2 ? 'rgba(255, 255, 255, 0.5)' : 'rgba(190, 205, 225, 0.35)';
+        ctx.beginPath(); ctx.arc(sx, sy, 0.5 + (i % 3) * 0.3, 0, Math.PI * 2); ctx.fill();
       }
     }
     _road(rd, h) {
@@ -3306,6 +3540,18 @@
     _car(car, alpha) {
       const ctx = this.ctx; ctx.save(); ctx.globalAlpha = alpha; ctx.translate(car.x, car.y); ctx.rotate(car.th);
       if (car.speed < 0.06 && car.speed >= 0 && this.sim.started && car.seg === 'main') ctx.globalAlpha = alpha * (0.5 + 0.5 * Math.sin(Date.now() / 200 + car.id * 3));
+      // Night headlights — scene lighting drawn UNDER the body. The body fill below
+      // remains the exact CAR_L×CAR_W rounded rect (visual-hitbox invariant).
+      if (this.theme.scene === 'night' && this.sim.started) {
+        const hlY = CAR_W * 0.28, beamR = CAR_L * 0.85;
+        for (const side of [-hlY, hlY]) {
+          const bg = ctx.createRadialGradient(CAR_L / 2, side, 0.5, CAR_L / 2 + beamR * 0.45, side, beamR);
+          bg.addColorStop(0, 'rgba(255, 240, 170, 0.34)');
+          bg.addColorStop(1, 'rgba(255, 240, 170, 0)');
+          ctx.fillStyle = bg;
+          ctx.beginPath(); ctx.arc(CAR_L / 2 + beamR * 0.45, side, beamR, 0, Math.PI * 2); ctx.fill();
+        }
+      }
       const hw = CAR_W / 2, hl = CAR_L / 2, R = 2.5; ctx.beginPath(); ctx.moveTo(-hl + R, -hw); ctx.lineTo(hl - R, -hw);
       ctx.quadraticCurveTo(hl, -hw, hl, -hw + R); ctx.lineTo(hl, hw - R); ctx.quadraticCurveTo(hl, hw, hl - R, hw);
       ctx.lineTo(-hl + R, hw); ctx.quadraticCurveTo(-hl, hw, -hl, hw - R); ctx.lineTo(-hl, -hw + R);
