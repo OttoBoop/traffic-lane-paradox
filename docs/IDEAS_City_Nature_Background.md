@@ -9,13 +9,13 @@ These were identified during discovery but are explicitly out of scope for the c
 
 ---
 
-### 1. Additional Themes (Desert, Snow, Night)
+### 1. Additional Themes (Desert, Snow, Night) — ✅ Night + Snow SHIPPED (2026-06-10)
 
 **What:** Follow the same `RENDER_THEMES` + `_scene*()` pattern to add more visual themes — desert, snow, or night variants.
 
-**Why deferred:** City & Nature is the immediate request from Leo. Once the theme-switching infrastructure (dropdown, offscreen buffer) is in place, adding more themes becomes straightforward.
+**Status:** `night` and `snow` shipped: full palettes delegating to `_sceneCityNature` plus overlay passes (night = veil/stars/moon/halos/headlights; snow = roof caps/frozen pond/snowfall). **Desert remains deferred** (not selected by the user).
 
-**Potential approach:** Each new theme adds a `RENDER_THEMES` entry + a `_scene[Name]()` method + a display name in the dropdown. The offscreen buffer and theme selector UI built for City & Nature are reusable.
+**Approach used:** Each new theme adds a `RENDER_THEMES` entry + a `_scene[Name]()` method + a display name in the dropdown — exactly as predicted; the palette-driven scene meant ~330 lines of geometry were reused per theme.
 
 ---
 
@@ -29,31 +29,29 @@ These were identified during discovery but are explicitly out of scope for the c
 
 ---
 
-### 3. Animated Elements (Swaying Trees, Chimney Smoke)
+### 3. Animated Elements (Swaying Trees, Chimney Smoke) — ✅ SHIPPED (2026-06-10)
 
 **What:** Add subtle animation to background elements — trees swaying, chimney smoke rising, water ripples.
 
-**Why deferred:** Animations would require per-frame rendering of the background layer, defeating the offscreen buffer optimization. The simulation's O(N²) bottleneck with many cars means background performance matters.
-
-**Potential approach:** Use a separate animation layer on top of the static offscreen buffer — only animated elements redraw each frame. Or use CSS animations on overlay elements if canvas performance is a concern.
+**Status:** Shipped as `Ren._animLayer` — exactly the "separate animation layer on top of the static offscreen buffer" approach proposed below: only small sprites redraw per frame (smoke puffs, swaying canopy patches, pond ripples; plus star twinkle on night and snowfall on snow), all stateless functions of `Date.now()` + anchors recorded by `_sceneCityNature`. An idle render loop keeps animations alive while paused without ticking the sims.
 
 ---
 
 ---
 
-### 4. Sheep on Farm Side (Session 2 — Not Selected)
+### 4. Sheep on Farm Side — ✅ SHIPPED (2026-06-10)
 
 **What:** Add sheep as a fourth animal species — fluffy white clusters, 2–4 per pen.
 
-**Why deferred:** User selected cows, chickens, pigs. Sheep were offered but not chosen. Adding them would follow the same `_drawSheep(ctx, x, y, scale)` pattern as the other animals.
+**Status:** Shipped as `_drawSheep(ctx, x, y, scale)` (the exact predicted pattern): 2–4 sheep grazing below the pen with right-zone guard. Card BR guards the primitive.
 
 ---
 
-### 5. Parked Cars on Urban Side (Session 2 — Not Selected)
+### 5. Parked Cars on Urban Side — ✅ SHIPPED (2026-06-10)
 
 **What:** Small top-down car rectangles parked in front of houses.
 
-**Why deferred:** Not selected during Session 2 discovery. Would follow the same prop-placement pattern as benches and lampposts.
+**Status:** Shipped as `_drawParkedCar` — muted-palette rects with window hints in front of ~35% of houses, left-zone guarded, drawn into the static buffer so they read as scenery, not sim cars. Card BR guards the primitive.
 
 ---
 

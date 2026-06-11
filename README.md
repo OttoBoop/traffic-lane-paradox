@@ -20,12 +20,14 @@ The simulation is a single HTML file (`index.html` — GitHub Pages ready; forme
 
 **Sim** runs the simulation tick loop. Each tick executes an ordered series of steps including lane detection, batch scheduler updates, traffic mode assignment, blocker classification and maneuver entry/exit logic, Stanley controller steering, IDM following distance, cone detection, wall avoidance, maneuver wobble overrides, branch speed floor, and finally the cost-based legal move selector that integrates the bicycle model. Step ordering matters — later steps override earlier ones.
 
-**Ren** renders to an HTML5 canvas in three themes selectable via a dropdown in the UI:
+**Ren** renders to an HTML5 canvas in five themes selectable via a dropdown in the UI:
 - `classic` — dark road on dark background (utilitarian)
 - `rioSatellite` — colorful aerial map style with Rio-inspired landmarks (church, island, mountains)
-- `cityNature` — isometric houses on the left (urban), farm fields + barn + pond on the right, dense forest in the V-area between branches
+- `cityNature` — top-down houses on the left (urban, with parked cars), farm fields + barn + pond + animals (cows, pigs, chickens, sheep) on the right, dense forest in the V-area between branches
+- `night` — cityNature geometry under a night veil: stars, moon, lamppost halos, warm house light spill, and car headlight glows
+- `snow` — cityNature geometry under snow: white ground, snow-capped roofs and pines, frozen pond, falling snowflakes
 
-Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch and stamped per frame via `drawImage()`, avoiding per-frame overhead. The rendered car shape and the SAT collision rectangle share the same constants — what the user sees is what collides.
+Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch and stamped per frame via `drawImage()`, avoiding per-frame overhead. A lightweight animation layer (`Ren._animLayer`) draws per-frame sprites on top — chimney smoke, swaying canopies, pond ripples, twinkling stars, snowfall — as stateless functions of `Date.now()`, so sim determinism is untouched; an idle render loop keeps them moving while paused with the timer frozen. Hovering a car shows a live tooltip (mode, speed, target, stuck ticks, batch, maneuver phase — PT/EN). The rendered car shape and the SAT collision rectangle share the same constants — what the user sees is what collides (night headlight glows are scene lighting under the body, not body geometry).
 
 ### Key Design Principles
 
@@ -124,9 +126,9 @@ node run_traffic_suite.js --id S --id X --id AA --id AH
 
 **Two-phase tick architecture.** Replace sequential commit (high-priority cars monopolize conflict resolution) with parallel intent + conflict resolution. Design notes in PLAN_Maneuver_Conflict_Overhaul §Feature 8; needs its own discovery before implementation.
 
-**Spatial partitioning.** Grid-cell broad-phase could further cut SAT checks at 50+ cars. Lower priority since the fast path + caches landed (~84% of nominal moves skip candidate evaluation).
+**Other deferred items** (tracked in IDEAS docs): desert theme, full A–Y RED→GREEN test overhaul, overlap-prevention pipeline simplification, browser visual overlap debugger, maneuver candidate count reduction.
 
-*(Resolved since the last revision: maneuver entry/exit bugs — Features 1–2 of PLAN_Maneuver_Conflict_Overhaul; the O(N²) framerate collapse — performance waves P1–P5 + car sleep, −78% wall time at 80 cars.)*
+*(Resolved since the last revision: maneuver entry/exit bugs — Features 1–2 of PLAN_Maneuver_Conflict_Overhaul; the O(N²) framerate collapse — performance waves P1–P5 + car sleep, −78% wall time at 80 cars; spatial hash broad-phase — card BQ; the paradox calibration — card Q green via COMMIT_DIST=300; night/snow themes, animated scene layer, hover tooltip, animated mode transitions, sheep + parked cars — card BR.)*
 
 ---
 
@@ -159,6 +161,7 @@ node run_traffic_suite.js --id S --id X --id AA --id AH
 | `profile_planner_hotspots.js` | Planner profiler: hotspot wall times + fast-path hit/miss counters |
 | `screenshot_visual_check.py` | Playwright screenshot automation for visual review |
 | `brute_overlap_check.js` | Brute-force overlap diagnostic (Car Overlap Debug plan deliverable) |
+| `sweep_paradox_params.js` | Staged parameter sweep that found the COMMIT_DIST=300 paradox calibration |
 | `v18_plan.md` | Full design history: resolved decisions, execution order, hitbox spec, maneuvering spec, v19/v20 divergence analysis. **Primary reference for architecture decisions.** |
 | `docs/DISCOVERY_Maneuver_Mode_Fix.md` | Root cause analysis of the maneuver trigger bug and fix approach |
 | `docs/DISCOVERY_City_Nature_Background.md` | Discovery doc for the City & Nature visual theme (Leo Bloise's design) |
