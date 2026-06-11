@@ -49,6 +49,8 @@ Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch
 
 ## Current State
 
+*(Last verified 2026-06-10 via `npm run traffic:test:guards` and focused card runs.)*
+
 ### What Works Reliably
 
 - Single-lane monotonic speed: cars on a branch never slow down. The core paradox premise holds.
@@ -56,23 +58,22 @@ Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch
 - Zero wall escapes: cars never exit the road surface.
 - Left-right symmetry: 100% left and 100% right produce identical times.
 - Fork batch scheduler: prevents blocked-exit admission; same-target runs no longer produce false conflict violations.
-- Maneuvering: cars do wobble, reverse, and adjust angles to give way. Gridlocks can resolve.
+- Maneuvering: cars do wobble, reverse, and adjust angles to give way. Gridlocks resolve; the yield false-trigger and batch+stuck deadlock bugs are fixed (PLAN_Maneuver_Conflict_Overhaul Features 1–2).
+- Guard suite green: S (4.33s), X (13.72s), AA (5.33s), AH (24.58s) all pass.
 
 ### Known Rough Edges
 
-**Framerate lag with many cars.** The cost-based planner runs SAT legality checks for every candidate against all nearby cars, every tick, for every car. At high car counts (3+ lanes, 20+ cars) this becomes expensive and causes visible framerate drops. The computational cost scales with O(N × candidates × N) per tick.
+**Paradox demonstration not yet calibrated.** Card Q (paradox race at 50/50) is red: 1L=10.00s, 2L=7.33s, 3L=6.75s — multi-lane currently finishes *faster*, the opposite of the design premise. The fork scheduler adds almost no crossing cost in mixed traffic (2L mixed 7.33s ≈ 2L same-target 7.40s). Calibration is tracked in IDEAS_Maneuver_Conflict_Overhaul §2.
 
-**Maneuver mode triggers too eagerly.** Cars sometimes enter maneuver mode when a reasonable forward passage exists. The trigger threshold and blocking conditions need tuning.
+**Same-target throughput scaling below target.** Cards H/I are red: 2L=7.40s (target ≤5.75s), 3L=6.75s (target ≤3.83s) for 100%-left traffic.
 
-**Maneuver mode exits too slowly.** Cars linger in maneuver mode longer than necessary. In some cases a single car gets permanently stuck in maneuver mode — unable to exit, holding up resolution of the gridlock it was supposed to help clear.
-
-**Throughput and paradox behavior under development.** In multi-lane mixed-traffic scenarios, the paradox demonstration and throughput scaling are not yet consistently meeting design targets. These are tuning goals, not safety issues.
+**Framerate at high car counts.** Performance waves P1–P5 + sleep (Wave 4) cut 3L/40 wall time ~78% and the planner fast path hits ~84% of nominal moves; very dense scenarios (80+ cars) can still tax slower devices.
 
 ---
 
 ## Testing Architecture
 
-Tests share a registry of 25 labeled cards (A–Y) defined in `traffic_test_suite.js`. Two frontends consume the same registry:
+Tests share a registry of labeled cards (A–Y plus extensions AA–BP) defined in `traffic_test_suite.js`. Two frontends consume the same registry:
 
 - `red_visual_tests.html` — browser dashboard with live simulation rendering per card
 - `run_traffic_suite.js` — Node.js CLI runner for headless automated checks
@@ -87,7 +88,9 @@ node run_traffic_suite.js --id AA
 
 **To run guard tests:**
 ```bash
-node run_traffic_suite.js --id S --id X --id AA
+npm run traffic:test:guards
+# equivalent to:
+node run_traffic_suite.js --id S --id X --id AA --id AH
 ```
 
 ### Test Card Overview
@@ -112,13 +115,15 @@ node run_traffic_suite.js --id S --id X --id AA
 
 ## Known Issues and Future Work
 
-**Maneuver tuning.** Three distinct problems need addressing: the entry trigger fires too eagerly (even when forward passage is available), the exit condition clears too slowly (cars linger), and occasionally a single car gets permanently stuck in maneuver mode and cannot exit, blocking the gridlock from fully clearing.
+**Paradox tuning.** Multi-lane mixed traffic currently completes faster than 1L (card Q red: 10.00/7.33/6.75s). The paradox requires deliberate fork-scheduler calibration to hold. This is the top open gameplay issue.
 
-**Performance overhaul.** The planner's O(N²) SAT computation is the primary framerate bottleneck. Spatial partitioning (grid cells) would cut the effective N per SAT from all cars to ~4–6 nearby cars, reducing cost by ~6–8×.
+**Test classification.** A systematic RED→GREEN pass over all cards is needed: run each card failing first, implement or fix, confirm green. Group cards into `guard_green` / `known_red` / `diagnostic` with confidence.
 
-**Test classification.** A systematic RED→GREEN pass over all 25 cards is needed: run each card failing first, implement or fix, confirm green. Group cards into `guard_green` / `known_red` / `diagnostic` with confidence. Consider: forced-gridlock test (deliberately deadlock a fork, verify it clears within N ticks).
+**Two-phase tick architecture.** Replace sequential commit (high-priority cars monopolize conflict resolution) with parallel intent + conflict resolution. Design notes in PLAN_Maneuver_Conflict_Overhaul §Feature 8; needs its own discovery before implementation.
 
-**Paradox tuning.** In some multi-lane configs, 2L can complete faster than 1L. The paradox requires careful IDM and batch scheduler tuning to hold once multi-lane flow becomes efficient.
+**Spatial partitioning.** Grid-cell broad-phase could further cut SAT checks at 50+ cars. Lower priority since the fast path + caches landed (~84% of nominal moves skip candidate evaluation).
+
+*(Resolved since the last revision: maneuver entry/exit bugs — Features 1–2 of PLAN_Maneuver_Conflict_Overhaul; the O(N²) framerate collapse — performance waves P1–P5 + car sleep, −78% wall time at 80 cars.)*
 
 ---
 
@@ -144,18 +149,27 @@ node run_traffic_suite.js --id S --id X --id AA
 |------|---------|
 | `traffic_v18.html` | Interactive browser UI — open this to run the simulator |
 | `traffic_core.js` | Simulation engine: Road, Car, Sim, Ren classes and all physics |
-| `traffic_test_suite.js` | Shared test card registry (A–Y), scenario definitions and verdict functions |
+| `traffic_test_suite.js` | Shared test card registry (A–Y + AA–BP), scenario definitions and verdict functions |
 | `run_traffic_suite.js` | Node.js CLI runner for headless test execution |
+| `package.json` | npm scripts: `traffic:test:guards`, `traffic:test:survey`, `traffic:test:focus` |
 | `red_visual_tests.html` | Browser visual regression dashboard (consumes `traffic_test_suite.js`) |
+| `profile_planner_hotspots.js` | Planner profiler: hotspot wall times + fast-path hit/miss counters |
+| `screenshot_visual_check.py` | Playwright screenshot automation for visual review |
+| `brute_overlap_check.js` | Brute-force overlap diagnostic (Car Overlap Debug plan deliverable) |
 | `v18_plan.md` | Full design history: resolved decisions, execution order, hitbox spec, maneuvering spec, v19/v20 divergence analysis. **Primary reference for architecture decisions.** |
 | `docs/DISCOVERY_Maneuver_Mode_Fix.md` | Root cause analysis of the maneuver trigger bug and fix approach |
 | `docs/DISCOVERY_City_Nature_Background.md` | Discovery doc for the City & Nature visual theme (Leo Bloise's design) |
-| `docs/PLAN_City_Nature_Background.md` | Implementation plan for the City & Nature theme |
+| `docs/PLAN_City_Nature_Background.md` | Implementation plan for the City & Nature theme (shipped) |
 | `docs/IDEAS_City_Nature_Background.md` | Deferred ideas from the City & Nature discovery (animated elements, more themes) |
 | `docs/DISCOVERY_Maneuver_Conflict_Overhaul.md` | Discovery for maneuver & conflict logic overhaul + performance extension |
 | `docs/PLAN_Maneuver_Conflict_Overhaul.md` | Implementation plan for maneuver/conflict fixes + performance optimizations |
-| `docs/DISCOVERY_Traffic_Rio_Satellite_Visual_Restyle.md` | Discovery for the Rio satellite scenic theme |
-| `docs/PLAN_Traffic_Rio_Satellite_Visual_Restyle.md` | Plan for the Rio satellite restyle |
+| `docs/IDEAS_Maneuver_Conflict_Overhaul.md` | Deferred ideas: paradox tuning, spatial partitioning, test overhaul |
+| `docs/DISCOVERY_Visual_State_Indicators.md` | Discovery for per-mode car indicators |
+| `docs/PLAN_Visual_State_Indicators.md` | Implementation plan for visual state indicators (shipped, commit cf6f3f6) |
+| `docs/IDEAS_Visual_State_Indicators.md` | Deferred ideas: animated transitions, hover tooltip |
+| `docs/DISCOVERY_Car_Overlap_Debug_Universal_Block.md` | Discovery for overlap diagnostic infrastructure |
+| `docs/PLAN_Car_Overlap_Debug_Universal_Block.md` | Plan for overlap diagnostics (diagnostics shipped; fix is follow-up) |
+| `docs/IDEAS_Car_Overlap_Debug_Universal_Block.md` | Deferred ideas: visual overlap debugger, pipeline simplification |
 | `verify_fork_width_wall_sync.js` | Geometry helper for fork-width wall synchronization |
 
 ---
@@ -165,7 +179,7 @@ node run_traffic_suite.js --id S --id X --id AA
 Read `v18_plan.md` first. It contains the full design rationale, the architectural decisions that were changed from the plan during implementation (v19 divergences), and the v20 traffic-handling layer specification.
 
 **Before any deployment:**
-- Run guard tests: `node run_traffic_suite.js --id S --id X --id AA`
+- Run guard tests: `npm run traffic:test:guards` (S, X, AA, AH)
 - Run the 3L/20-car 50/50 browser simulation visually
 
 **For planner changes** (`_candidateSet`, `_scoreCandidate`, `_chooseBestLegalCandidate`):
