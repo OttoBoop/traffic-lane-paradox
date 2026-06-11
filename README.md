@@ -59,15 +59,18 @@ Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch
 - Left-right symmetry: 100% left and 100% right produce identical times.
 - Fork batch scheduler: prevents blocked-exit admission; same-target runs no longer produce false conflict violations.
 - Maneuvering: cars do wobble, reverse, and adjust angles to give way. Gridlocks resolve; the yield false-trigger and batch+stuck deadlock bugs are fixed (PLAN_Maneuver_Conflict_Overhaul Features 1–2).
-- Guard suite green: S (4.33s), X (13.72s), AA (5.33s), AH (24.58s) all pass.
+- Guard suite green: S (2.67s), X (24.68s), AA (5.33s), AH (41.85s) all pass (times reflect the COMMIT_DIST=300 calibration).
+- Braess paradox demonstrated: card Q green — 1L strictly fastest at 50/50 across 4 seed triples.
+
+### The Paradox Works
+
+As of 2026-06-10, **card Q is green**: at 50/50 demand, 1 lane completes in 10.00s while 2 lanes take 15.95s and 3 lanes 12.53s — adding lanes makes everyone slower, as the model intends. The calibration that unlocked it was `COMMIT_DIST` 90→300: with early lane commitment, wrong-lane cars must genuinely cross at the fork instead of pre-sorting via MOBIL demand balancing (which had been dissolving the conflict entirely — the batch scheduler used to engage exactly once per run). Full analysis in `v18_plan.md` §0.2.
 
 ### Known Rough Edges
 
-**Paradox demonstration not yet calibrated.** Card Q (paradox race at 50/50) is red: 1L=10.00s, 2L=7.33s, 3L=6.75s — multi-lane currently finishes *faster*, the opposite of the design premise. The fork scheduler adds almost no crossing cost in mixed traffic (2L mixed 7.33s ≈ 2L same-target 7.40s). Calibration is tracked in IDEAS_Maneuver_Conflict_Overhaul §2.
+**Same-target throughput scaling below target.** Cards H/I are red: 2L=7.40s (target ≤5.75s), 3L=6.57s (target ≤3.83s) for 100%-left traffic.
 
-**Same-target throughput scaling below target.** Cards H/I are red: 2L=7.40s (target ≤5.75s), 3L=6.75s (target ≤3.83s) for 100%-left traffic.
-
-**Framerate at high car counts.** Performance waves P1–P5 + sleep (Wave 4) cut 3L/40 wall time ~78% and the planner fast path hits ~84% of nominal moves; very dense scenarios (80+ cars) can still tax slower devices.
+**Framerate at high car counts.** Performance waves P1–P5 + sleep (Wave 4) cut 3L/40 wall time ~78%, the planner fast path hits ~84% of nominal moves, and a spatial hash grid (90px cells, live-updated at the `_commitPose` choke point) trims neighbor queries at 200+ cars; very dense scenarios can still tax slower devices.
 
 ---
 
@@ -115,7 +118,7 @@ node run_traffic_suite.js --id S --id X --id AA --id AH
 
 ## Known Issues and Future Work
 
-**Paradox tuning.** Multi-lane mixed traffic currently completes faster than 1L (card Q red: 10.00/7.33/6.75s). The paradox requires deliberate fork-scheduler calibration to hold. This is the top open gameplay issue.
+**Promote card Q to guard.** Q (paradox race) is `survey_green` since the COMMIT_DIST=300 calibration; promote to `guard_green` once it has survived a few more sessions.
 
 **Test classification.** A systematic RED→GREEN pass over all cards is needed: run each card failing first, implement or fix, confirm green. Group cards into `guard_green` / `known_red` / `diagnostic` with confidence.
 
