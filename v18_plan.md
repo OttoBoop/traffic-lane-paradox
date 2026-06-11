@@ -26,6 +26,15 @@ Cards still intentionally survey-only after this audit:
 Notes on audit cost:
 - Some heavy mixed-traffic cards are expensive enough that combined CLI runs can exceed local shell timeouts. The harness is correct; the practical workflow is to run focused subsets or single cards for the heaviest cases.
 
+0.1 Audit Snapshot — 2026-06-10
+Verified by direct CLI runs in this session:
+- Guards ALL GREEN: `node run_traffic_suite.js --id S --id X --id AA --id AH` → S 4.33s, X 13.72s, AA 5.33s, AH 24.58s, 0 failures. The AH timeout documented in PLAN_Maneuver_Conflict_Overhaul's 2026-03-13 baseline is resolved (perf waves P1–P5 + sleep).
+- `Q` (paradox race) still RED: 1L=10.00s, 2L=7.33s, 3L=6.75s at 50/50 — multi-lane finishes faster, opposite of the design premise. Notably 2L mixed (7.33) ≈ 2L same-target (7.40): the fork scheduler currently adds ~zero crossing cost, which is why the paradox fails. Calibration scheduled.
+- `R` (completion race) PASS: 10.00/9.00/8.68.
+- `G` 1L baseline 10.00s PASS. `H` RED 7.40s (target ≤5.75). `I` RED 6.75s (target ≤3.83).
+- Active red targets remain: `C`, `H`, `I`, `Q`, `V`, `Y`.
+- The `package.json` with `traffic:test:guards/survey/focus` scripts referenced above did not actually exist until this date; it has now been created to match the documented interface.
+
 1. Overview
 V18 is a major rewrite addressing six defect categories and adding coordinated maneuvering, visual improvements, and UI changes. Every system interaction has been designed through iterative discussion. This document captures every decision made and specifies exactly what to build and test.
 
