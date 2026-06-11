@@ -3719,18 +3719,65 @@
         if (tm === 'maneuver' || car.maneuvering) {
           ctx.fillStyle = 'rgba(255,50,0,0.12)'; ctx.fillRect(-hl, -hw, CAR_L, CAR_W);
         }
-        // Mode border strokes
-        if (tm === 'maneuver' || car.maneuvering) {
-          ctx.setLineDash([3, 2]); ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+        // Mode border strokes — blended over ~120ms on mode change. Renderer-only
+        // state (this._modeAnim keyed by car.id); first sighting draws steady
+        // state immediately, so structural spies with no prior state see the
+        // exact per-mode ops (card BO).
+        const SPECS = {
+          maneuver: { color: '#ff4400', dash: [3, 2], width: 1.5 },
+          yield: { color: '#ddaa44', dash: [], width: 1.0 },
+          hold_exit: { color: '#55bb77', dash: [1.5, 1.5], width: 0.7 },
+          batch: { color: '#55bb77', dash: [], width: 0.7 },
+        };
+        const modeKey = (tm === 'maneuver' || car.maneuvering) ? 'maneuver'
+          : (tm === 'yield' || car.zoneYielding) ? 'yield'
+            : (tm === 'hold_exit' || tm === 'batch') ? tm : 'none';
+        if (!this._modeAnim) this._modeAnim = new Map();
+        const nowMs = Date.now();
+        let entry = this._modeAnim.get(car.id);
+        if (!entry) {
+          entry = { mode: modeKey, prevMode: null, t0: 0 }; // first sighting: steady
+          this._modeAnim.set(car.id, entry);
+        } else if (entry.mode !== modeKey) {
+          entry.prevMode = entry.mode; entry.mode = modeKey; entry.t0 = nowMs;
         }
-        if (tm === 'yield' || car.zoneYielding) {
-          ctx.setLineDash([]); ctx.strokeStyle = '#ddaa44'; ctx.lineWidth = 1.0; ctx.stroke();
-        }
-        if (tm === 'hold_exit') {
-          ctx.setLineDash([1.5, 1.5]); ctx.strokeStyle = '#55bb77'; ctx.lineWidth = 0.7; ctx.stroke(); ctx.setLineDash([]);
-        }
-        if (tm === 'batch') {
-          ctx.setLineDash([]); ctx.strokeStyle = '#55bb77'; ctx.lineWidth = 0.7; ctx.stroke();
+        const BLEND_MS = 120;
+        const el2 = nowMs - entry.t0;
+        const blending = entry.t0 > 0 && el2 < BLEND_MS;
+        const blend = blending ? el2 / BLEND_MS : 1;
+        const toSpec = SPECS[modeKey] || null;
+        const fromSpec = blending ? (SPECS[entry.prevMode] || null) : null;
+        const lerpHex = (ha, hb, tt) => {
+          const pa = parseInt(ha.slice(1), 16), pb = parseInt(hb.slice(1), 16);
+          const r = Math.round(((pa >> 16) & 255) + (((pb >> 16) & 255) - ((pa >> 16) & 255)) * tt);
+          const g = Math.round(((pa >> 8) & 255) + (((pb >> 8) & 255) - ((pa >> 8) & 255)) * tt);
+          const b = Math.round((pa & 255) + ((pb & 255) - (pa & 255)) * tt);
+          return `rgb(${r},${g},${b})`;
+        };
+        if (toSpec && fromSpec) {
+          // Mode→mode: lerp color/width, dash pattern switches at the midpoint
+          ctx.setLineDash(blend < 0.5 ? fromSpec.dash : toSpec.dash);
+          ctx.strokeStyle = lerpHex(fromSpec.color, toSpec.color, blend);
+          ctx.lineWidth = fromSpec.width + (toSpec.width - fromSpec.width) * blend;
+          ctx.stroke(); ctx.setLineDash([]);
+        } else if (toSpec) {
+          // none→mode (or steady): fade in during blend, then exact per-mode ops
+          const ga = ctx.globalAlpha;
+          if (blending) ctx.globalAlpha = ga * blend;
+          ctx.setLineDash(toSpec.dash);
+          ctx.strokeStyle = toSpec.color;
+          ctx.lineWidth = toSpec.width;
+          ctx.stroke(); ctx.setLineDash([]);
+          ctx.globalAlpha = ga;
+        } else if (fromSpec) {
+          // mode→none: fade the old border out
+          const ga = ctx.globalAlpha;
+          ctx.globalAlpha = ga * (1 - blend);
+          ctx.setLineDash(fromSpec.dash);
+          ctx.strokeStyle = fromSpec.color;
+          ctx.lineWidth = fromSpec.width;
+          ctx.stroke(); ctx.setLineDash([]);
+          ctx.globalAlpha = ga;
         }
         // Directional arrow for batch/hold_exit
         if (tm === 'batch' || tm === 'hold_exit') {
