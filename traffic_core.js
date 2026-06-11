@@ -1536,6 +1536,18 @@
           continue;
         }
 
+        // BATCH_HOLD_TICKS gate: a new batch may not be granted before the previous
+        // grant's expire tick. Zone transit normally exceeds the default hold, so this
+        // only binds when the constant is tuned upward — and only under two-sided
+        // demand (schedulerEnabled), so same-target flow is structurally unaffected.
+        if (zone.batchExpireTick && this.ticks < zone.batchExpireTick) {
+          zone.activeBatchId = null; zone.activeBatchTarget = null; zone.batchMembers = [];
+          if (waiting.left.length) zone.starveTicksLeft++;
+          if (waiting.right.length) zone.starveTicksRight++;
+          this.maxStarveTicks = Math.max(this.maxStarveTicks, zone.starveTicksLeft, zone.starveTicksRight);
+          continue;
+        }
+
         const readyLeft = waiting.left.length > 0 && zone.downstreamClearanceByTarget.left >= EXIT_CLEARANCE;
         const readyRight = waiting.right.length > 0 && zone.downstreamClearanceByTarget.right >= EXIT_CLEARANCE;
 
@@ -1556,7 +1568,13 @@
 
         const queue = waiting[chosenTarget];
         const members = [queue[0].car];
-        if (queue.length > 1 && this._canShareBatch(queue[0].car, queue[1].car, 1, rd, active)) members.push(queue[1].car);
+        // Chain up to MAX_BATCH_SIZE members; each must be batch-compatible with the
+        // previously added one. At the default size 2 this reduces to the original
+        // single queue[0]/queue[1] check.
+        for (let qi = 1; qi < queue.length && members.length < MAX_BATCH_SIZE; qi++) {
+          if (this._canShareBatch(members[members.length - 1], queue[qi].car, 1, rd, active)) members.push(queue[qi].car);
+          else break;
+        }
 
         zone.activeBatchId = this.nextBatchId++;
         zone.activeBatchTarget = chosenTarget;
