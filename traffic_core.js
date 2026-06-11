@@ -3012,6 +3012,49 @@
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath(); ctx.ellipse(x - rx * 0.25, y - ry * 0.2, rx * 0.2, ry * 0.15, 0, 0, Math.PI * 2); ctx.fill();
     }
+    _drawSheep(ctx, x, y, scale) {
+      const s = scale || 1;
+      const bw = 7 * s, bh = 5.5 * s;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.beginPath(); ctx.ellipse(x + 1.2 * s, y + 1.2 * s, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Fluffy body — overlapping white arcs
+      ctx.fillStyle = '#f8f6ee';
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x - bw * 0.22, y - bh * 0.12, bw * 0.3, bh * 0.32, 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + bw * 0.2, y - bh * 0.08, bw * 0.28, bh * 0.3, -0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, y + bh * 0.12, bw * 0.32, bh * 0.28, 0.1, 0, Math.PI * 2); ctx.fill();
+      // Dark head — small oval at front edge
+      ctx.fillStyle = '#3a3530';
+      ctx.beginPath(); ctx.ellipse(x + bw * 0.42, y - bh * 0.18, 1.6 * s, 1.2 * s, 0.5, 0, Math.PI * 2); ctx.fill();
+      // Leg stubs
+      ctx.fillStyle = '#4a4540';
+      ctx.fillRect(x - bw * 0.25, y + bh * 0.38, 0.9 * s, 1.4 * s);
+      ctx.fillRect(x + bw * 0.12, y + bh * 0.4, 0.9 * s, 1.4 * s);
+      // Outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2 + 0.4, bh / 2 + 0.4, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    _drawParkedCar(ctx, x, y, ang, color) {
+      // Decorative parked car — muted palette, no indicators, drawn into the
+      // static scene buffer. Deliberately distinct from live sim cars.
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(ang);
+      const pl = CAR_L * 0.82, pw = CAR_W * 0.82;
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(-pl / 2 + 1, -pw / 2 + 1, pl, pw);
+      ctx.fillStyle = color;
+      ctx.fillRect(-pl / 2, -pw / 2, pl, pw);
+      // Windshield + rear window hints
+      ctx.fillStyle = 'rgba(40, 55, 70, 0.55)';
+      ctx.fillRect(pl * 0.08, -pw * 0.32, pl * 0.2, pw * 0.64);
+      ctx.fillRect(-pl * 0.3, -pw * 0.32, pl * 0.14, pw * 0.64);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(-pl / 2, -pw / 2, pl, pw);
+      ctx.restore();
+    }
     _drawCoop(ctx, x, y, scale) {
       const s = scale || 1;
       const cw = 10 * s, ch = 8 * s;
@@ -3212,6 +3255,14 @@
         if (rng() > 0.5) this._drawCow(ctx, lx, ly, animalScale * 0.9);
         else this._drawPig(ctx, lx, ly, animalScale * 0.8);
       }
+      // 2–4 sheep grazing below the pen (IDEAS_City_Nature #4)
+      const nSheep = Math.min(4, Math.max(2, Math.round(3 * m.baseScale)));
+      for (let sh = 0; sh < nSheep; sh++) {
+        const sx = fX + rng() * fW * 0.9;
+        const sy = fY + fH + 4 + rng() * 12;
+        if (sx - 4 < zones.right.min || sy > h - 8) continue; // zone + canvas guard
+        this._drawSheep(ctx, sx, sy, animalScale * 0.85);
+      }
 
       // ── Chicken coop + flock (F9-T6 placement) ──
       const coopX = farmL + farmW * 0.55;
@@ -3285,6 +3336,17 @@
           const chS = Math.min(p.w, p.h) * 0.18;
           anchors.chimneys.push({ x: p.x + p.w * 0.7 + chS / 2, y: p.y + p.h * 0.15 });
         }
+      }
+
+      // ── Parked cars in front of ~35% of houses (IDEAS_City_Nature #5) ──
+      const parkedColors = ['#8a8d94', '#7a6a5a', '#5a6a7a', '#94867a'];
+      for (const p of placed) {
+        if (rng() > 0.35) continue;
+        const px = p.x + p.tw + 3 + CAR_L * 0.41;
+        const py = p.y + p.h * 0.5;
+        // Entire rotated rect must stay inside the left safe zone
+        if (px + CAR_L * 0.41 > zones.left.max) continue;
+        this._drawParkedCar(ctx, px, py, Math.PI / 2 + (rng() - 0.5) * 0.08, parkedColors[Math.floor(rng() * parkedColors.length)]);
       }
 
       // ── Benches + mailboxes near houses (F8-T4) ──
