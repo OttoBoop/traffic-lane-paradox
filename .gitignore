@@ -2,3 +2,10 @@
 Thumbs.db
 *.log
 .edge-tmp.Path/
+*.stackdump
+screenshots/
+*_result.json
+lag_*.txt
+*.tmp
+.tmp_*
+node_modules/

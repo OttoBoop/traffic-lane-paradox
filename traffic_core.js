@@ -18,17 +18,33 @@
   const PROJ_MARGIN = 2;
   const PROJ_BROAD_PHASE = 60;
   const PROJ_BROAD_PHASE_SQ = PROJ_BROAD_PHASE * PROJ_BROAD_PHASE;
+  // Cell must be >= the max neighbor query radius (PROJ_BROAD_PHASE + extraRange 30)
+  // so a query never needs to scan beyond the adjacent cell ring.
+  const NEIGHBOR_GRID_CELL = PROJ_BROAD_PHASE + 30;
   const INTERSECT_WIDEN = 1.3;
   const MAIN_LANE_SCALE = 1.10;
   const BRANCH_LANE_SCALE = 1.25;
   const BRANCH_WIDTH_TRANSITION_T = 0.24;
   const SPLIT_WALL_GAP = 4;
   const BRANCH_SAMPLE_COUNT = 60;
-  const COMMIT_DIST = 90;
+  // Paradox calibration (2026-06-10): 300 locks lane choice early enough that
+  // wrong-lane cars must actually CROSS at the fork instead of pre-sorting via
+  // MOBIL demand balancing. At the old 90, a 2L/10-car 50/50 run had ZERO ticks
+  // with both targets simultaneously near the crossing point (no conflict, no
+  // paradox: Q was 10.00/7.33/6.75). At 300, card Q passes on 4/4 seed triples
+  // (e.g. 10.00/15.95/12.53) with guards green. 420 was rejected: occasional
+  // 2L DNF + AH at its tick ceiling. See sweep_paradox_params.js.
+  const COMMIT_DIST = 300;
   const BATCH_APPROACH_DIST = COMMIT_DIST + 80;
   const EXIT_CLEARANCE = CAR_L * 2;
   const MAX_BATCH_SIZE = 2;
   const BATCH_HOLD_TICKS = 24;
+  // Crossing caution: when opposite-target traffic is present at a conflict zone,
+  // crossing cars cap desSpd to CONFLICT_CROSS_SPEED × v0 while traversing it.
+  // 1 disables the cap entirely. Same-target-only and single-lane flow never
+  // trigger it (no opposite car / no conflict zones).
+  const CONFLICT_CROSS_SPEED = 1;
+  const CONFLICT_GUARD_SPAN = CAR_L * 3;
   const NO_PROGRESS_THRESH = 60;
   const NO_PROGRESS_THRESH_YIELD = 480;
   const PROGRESS_RESUME_THRESH = 20;
@@ -135,6 +151,96 @@
       stopLightStop: '#bb1818',
       stopLightRing: '#3a3d42',
       queueText: '#555'
+    },
+    // NOITE — city_nature geometry under a night veil: lit lamp halos, house
+    // glow, stars + moon overlays, car headlights (scene 'night' in Ren._car).
+    night: {
+      scene: 'night',
+      canvas: '#0b1026',
+      urbanGround: '#272c3a',
+      grassGround: '#1c2b22',
+      grassLight: '#27392c',
+      forestDark: '#0e1c14',
+      forest: '#1a3324',
+      forestAlt: '#264433',
+      farmRow: '#2e4434',
+      farmFence: '#4a3c2c',
+      fieldA: '#22331f',
+      fieldB: '#2a3a24',
+      fieldC: '#33402c',
+      barnWall: '#5a2820',
+      barnRoof: '#3a1812',
+      barnDoor: '#2a1008',
+      pond: '#1c3a50',
+      pondEdge: '#16303f',
+      fence: '#3c2c1a',
+      houseWalls: ['#9a8e78', '#8a7058', '#7a5848', '#9c9480'],
+      houseSides: ['#7a705c', '#6a543e', '#5c4434', '#7c7460'],
+      houseRoofs: ['#4a2c14', '#54301c', '#3c2418', '#44301e'],
+      houseShadow: 'rgba(0, 0, 10, 0.45)',
+      windowColor: '#ffd978',
+      windowFrame: '#2a2218',
+      doorColor: '#33220e',
+      yardGreen: '#27392a',
+      yardBrown: '#3c3528',
+      sidewalk: '#3c3f4a',
+      fountainWater: '#2c5a74',
+      fountainRing: '#4c4438',
+      roadFill: '#383d47',
+      roadGuide: 'rgba(255, 244, 200, 0.38)',
+      roadDivider: '#e8dca0',
+      roadStroke: '#23262e',
+      stopGo: '#1f4a26',
+      stopStop: '#4a1a16',
+      stopLightGo: '#3fe06f',
+      stopLightStop: '#ff5f4a',
+      stopLightRing: '#161a24',
+      queueText: '#8a93a8'
+    },
+    // NEVE — city_nature geometry under snow: white ground, snow-capped roofs
+    // and pines, frozen pond, falling snowflakes (animation layer).
+    snow: {
+      scene: 'snow',
+      canvas: '#dfe7f0',
+      urbanGround: '#d8dee8',
+      grassGround: '#eef3f8',
+      grassLight: '#f6f9fc',
+      forestDark: '#9db4ab',
+      forest: '#3f6b52',
+      forestAlt: '#e8f1f4',
+      farmRow: 'rgba(130, 150, 170, 0.45)',
+      farmFence: '#7a6a52',
+      fieldA: '#e6edf4',
+      fieldB: '#f2f6fa',
+      fieldC: '#d9e3ee',
+      barnWall: '#8b3a2a',
+      barnRoof: '#6b3022',
+      barnDoor: '#4a1a0e',
+      fence: '#6b4e2e',
+      pond: '#bcd8e8',
+      pondEdge: '#8fb4c8',
+      houseWalls: ['#e8e2d4', '#d4b894', '#c89078', '#ece6d8'],
+      houseSides: ['#c8c0a8', '#b09068', '#a87858', '#ccc4ac'],
+      houseRoofs: ['#a86848', '#b87858', '#8a5a44', '#986a52'],
+      houseShadow: 'rgba(70, 90, 120, 0.25)',
+      windowColor: 'rgba(255, 226, 150, 0.85)',
+      windowFrame: '#5a4a38',
+      doorColor: '#6a4a2e',
+      yardGreen: '#e2ecf2',
+      yardBrown: '#d8dce4',
+      sidewalk: '#c8d0dc',
+      fountainWater: '#a8cce0',
+      fountainRing: '#a89c84',
+      roadFill: '#6a7076',
+      roadGuide: 'rgba(240, 244, 248, 0.45)',
+      roadDivider: '#eef2f6',
+      roadStroke: '#4a5056',
+      stopGo: '#2a5a3a',
+      stopStop: '#6a2a24',
+      stopLightGo: '#2fc262',
+      stopLightStop: '#e05a4a',
+      stopLightRing: '#4a5056',
+      queueText: '#5a6878'
     }
   };
 
@@ -1179,7 +1285,25 @@
         }
       }
 
+      // Crossing-caution pre-pass: flag, per conflict zone, which targets have a car
+      // inside the guard span. Skipped entirely at CONFLICT_CROSS_SPEED = 1.
+      if (CONFLICT_CROSS_SPEED < 1) {
+        for (const zone of rd.conflictZones) { zone._crossLeft = false; zone._crossRight = false; }
+        for (const o of mains) {
+          if (o.fixed) continue;
+          for (const zone of rd.conflictZones) {
+            const zi = zone.paths.get(o.pathKey);
+            if (zi === undefined) continue;
+            const dp = (zi - o.pathIdx) * PATH_SP;
+            if (dp > -CONFLICT_GUARD_SPAN && dp < CONFLICT_GUARD_SPAN) {
+              if (o.target === 'left') zone._crossLeft = true; else zone._crossRight = true;
+            }
+          }
+        }
+      }
+
       for (const c of mains) {
+        c._crossCaution = false;
         if (c.fixed) { c._conflictProgress = null; c._targetClearance = 1e9; continue; }
         let conflictProgress = null;
         for (const zone of rd.conflictZones) {
@@ -1197,6 +1321,13 @@
             const gap = Math.max(dp - CAR_L * 0.5, 0.1);
             const brakeSpd = c.speed + Math.max(idm(c.speed, 0, gap, c.speed), -IDM_B * 5) * dt;
             c.desSpd = Math.min(c.desSpd, Math.max(0, brakeSpd));
+          }
+          if (CONFLICT_CROSS_SPEED < 1 && dp > -CONFLICT_GUARD_SPAN && dp < CONFLICT_GUARD_SPAN) {
+            const opposite = c.target === 'left' ? zone._crossRight : zone._crossLeft;
+            if (opposite) {
+              c.desSpd = Math.min(c.desSpd, P.v0 * CONFLICT_CROSS_SPEED);
+              c._crossCaution = true;
+            }
           }
         }
         if (c.trafficMode === 'batch') {
@@ -1224,7 +1355,8 @@
       const noSchedulerActive = !rd.conflictZones.some(z => z.schedulerEnabled);
       for (const c of active) {
         if (c.seg !== 'main' && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
-        if (c.seg === 'main' && noSchedulerActive && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
+        // Crossing-caution cars are exempt from the main-segment floor — it would undo the cap.
+        if (c.seg === 'main' && noSchedulerActive && !c._crossCaution && c._gap > IDM_S0 && c.desSpd > 0) c.desSpd = Math.max(c.desSpd, P.v0);
       }
 
       for (const c of active) {
@@ -1235,8 +1367,9 @@
         c.speed = c.desSpd;
       }
 
-      // Clear per-tick neighbor cache (P1) and pre-compute trig (P3).
+      // Clear per-tick neighbor cache (P1), pre-compute trig (P3), rebuild spatial grid.
       for (const c of active) { c._cachedNeighbors = null; c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th); }
+      this._rebuildNeighborGrid(allActive);
       // Commit only legal next poses. Cars never move into an illegal pose and then revert.
       const moveOrder = [...active].sort((a, b) => this._movementPriority(b) - this._movementPriority(a));
       for (const c of moveOrder) {
@@ -1532,6 +1665,18 @@
           continue;
         }
 
+        // BATCH_HOLD_TICKS gate: a new batch may not be granted before the previous
+        // grant's expire tick. Zone transit normally exceeds the default hold, so this
+        // only binds when the constant is tuned upward — and only under two-sided
+        // demand (schedulerEnabled), so same-target flow is structurally unaffected.
+        if (zone.batchExpireTick && this.ticks < zone.batchExpireTick) {
+          zone.activeBatchId = null; zone.activeBatchTarget = null; zone.batchMembers = [];
+          if (waiting.left.length) zone.starveTicksLeft++;
+          if (waiting.right.length) zone.starveTicksRight++;
+          this.maxStarveTicks = Math.max(this.maxStarveTicks, zone.starveTicksLeft, zone.starveTicksRight);
+          continue;
+        }
+
         const readyLeft = waiting.left.length > 0 && zone.downstreamClearanceByTarget.left >= EXIT_CLEARANCE;
         const readyRight = waiting.right.length > 0 && zone.downstreamClearanceByTarget.right >= EXIT_CLEARANCE;
 
@@ -1552,7 +1697,13 @@
 
         const queue = waiting[chosenTarget];
         const members = [queue[0].car];
-        if (queue.length > 1 && this._canShareBatch(queue[0].car, queue[1].car, 1, rd, active)) members.push(queue[1].car);
+        // Chain up to MAX_BATCH_SIZE members; each must be batch-compatible with the
+        // previously added one. At the default size 2 this reduces to the original
+        // single queue[0]/queue[1] check.
+        for (let qi = 1; qi < queue.length && members.length < MAX_BATCH_SIZE; qi++) {
+          if (this._canShareBatch(members[members.length - 1], queue[qi].car, 1, rd, active)) members.push(queue[qi].car);
+          else break;
+        }
 
         zone.activeBatchId = this.nextBatchId++;
         zone.activeBatchTarget = chosenTarget;
@@ -1683,6 +1834,18 @@
     _relevantLegalNeighbors(c, active, extraRange = 30) {
       if (c._cachedNeighbors) return c._cachedNeighbors;
       const range = PROJ_BROAD_PHASE + extraRange;
+      // Grid fast path only when the query targets the exact car set the grid was
+      // built from (this tick's allActive). Other caller sets — e.g. the awake-only
+      // `active` array in maneuver-exit probes — keep the brute scan, so results
+      // are identical by construction either way.
+      const result = (this._neighborGrid && active === this._neighborGridSource)
+        ? this._relevantLegalNeighborsGrid(c, range)
+        : this._relevantLegalNeighborsBrute(c, active, range);
+      c._cachedNeighbors = result;
+      return result;
+    }
+
+    _relevantLegalNeighborsBrute(c, active, range) {
       const rangeSq = range * range;
       const overlapNeighbors = [];
       const gapNeighbors = [];
@@ -1699,9 +1862,67 @@
         }
         gapNeighbors.push(o);
       }
-      const result = { overlapNeighbors, gapNeighbors };
-      c._cachedNeighbors = result;
-      return result;
+      return { overlapNeighbors, gapNeighbors };
+    }
+
+    _relevantLegalNeighborsGrid(c, range) {
+      const rangeSq = range * range;
+      const overlapNeighbors = [];
+      const gapNeighbors = [];
+      const grid = this._neighborGrid;
+      const cx0 = Math.floor((c.x - range) / NEIGHBOR_GRID_CELL);
+      const cx1 = Math.floor((c.x + range) / NEIGHBOR_GRID_CELL);
+      const cy0 = Math.floor((c.y - range) / NEIGHBOR_GRID_CELL);
+      const cy1 = Math.floor((c.y + range) / NEIGHBOR_GRID_CELL);
+      for (let gx = cx0; gx <= cx1; gx++) {
+        for (let gy = cy0; gy <= cy1; gy++) {
+          const cell = grid.get(gx + ',' + gy);
+          if (!cell) continue;
+          for (const o of cell) {
+            if (o.id === c.id || o.done) continue;
+            const dx = c.x - o.x, dy = c.y - o.y;
+            if (dx * dx + dy * dy > rangeSq) continue;
+            overlapNeighbors.push(o);
+            if (c.seg !== o.seg) continue;
+            if (c.seg === 'main') {
+              if (c.lane !== o.lane) continue;
+            } else if (c.pathKey !== o.pathKey) {
+              continue;
+            }
+            gapNeighbors.push(o);
+          }
+        }
+      }
+      return { overlapNeighbors, gapNeighbors };
+    }
+
+    _rebuildNeighborGrid(cars) {
+      const grid = this._neighborGrid || (this._neighborGrid = new Map());
+      grid.clear();
+      this._neighborGridSource = cars;
+      for (const o of cars) {
+        const key = Math.floor(o.x / NEIGHBOR_GRID_CELL) + ',' + Math.floor(o.y / NEIGHBOR_GRID_CELL);
+        o._gridKey = key;
+        const cell = grid.get(key);
+        if (cell) cell.push(o); else grid.set(key, [o]);
+      }
+    }
+
+    // Re-bucket a car after its position changed. Called from _commitPose — the
+    // universal position choke point — so the grid stays live through mid-tick
+    // sequential commits, sleeping-car moves, and post-move correction passes.
+    _gridReindexCar(c) {
+      if (!this._neighborGrid || c._gridKey === undefined) return;
+      const key = Math.floor(c.x / NEIGHBOR_GRID_CELL) + ',' + Math.floor(c.y / NEIGHBOR_GRID_CELL);
+      if (key === c._gridKey) return;
+      const old = this._neighborGrid.get(c._gridKey);
+      if (old) {
+        const i = old.indexOf(c);
+        if (i >= 0) old.splice(i, 1);
+      }
+      c._gridKey = key;
+      const cell = this._neighborGrid.get(key);
+      if (cell) cell.push(c); else this._neighborGrid.set(key, [c]);
     }
 
     _poseOverlapsCars(c, pose, active, margin = PROJ_MARGIN) {
@@ -1793,6 +2014,7 @@
         }
       }
       c.x = nx; c.y = ny; c.th = nth;
+      this._gridReindexCar(c);
       return true;
     }
 
@@ -2378,6 +2600,8 @@
       this.ctx = bCtx;
       if (sc === 'rio_satellite') this._scene(rd, lw, lh);
       else if (sc === 'city_nature') this._sceneCityNature(rd, lw, lh, bCtx);
+      else if (sc === 'night') this._sceneNight(rd, lw, lh, bCtx);
+      else if (sc === 'snow') this._sceneSnow(rd, lw, lh, bCtx);
       this.ctx = origCtx;
       this._sceneBuf = buf;
       this._sceneBufW = lw;
@@ -2401,9 +2625,96 @@
       ctx.scale(scale, scale);
       this._ensureSceneBuf(rd, logicalW, logicalH);
       if (this._sceneBuf) ctx.drawImage(this._sceneBuf, 0, 0);
-      this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH); ctx.restore();
+      this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH);
+      this._animLayer(rd, logicalW, logicalH);
+      this._lastView = { scale, offsetX, offsetY, logicalW, logicalH };
+      ctx.restore();
+    }
+    // Hit-test a CSS-pixel canvas coordinate against live car rects (+2px slack).
+    // Uses the view transform stored by draw(). Returns the car or null.
+    carAt(cssX, cssY) {
+      const v = this._lastView;
+      if (!v || !v.scale) return null;
+      const wx = (cssX - v.offsetX) / v.scale;
+      const wy = (cssY - v.offsetY) / v.scale;
+      for (const car of this.sim.cars) {
+        if (car.done) continue;
+        const loc = toLocal(wx, wy, car.x, car.y, car.th);
+        if (Math.abs(loc.fwd) <= CAR_L / 2 + 2 && Math.abs(loc.lat) <= CAR_W / 2 + 2) return car;
+      }
+      return null;
+    }
+    // ── Animation layer — lightweight per-frame sprites over the static buffer.
+    // All sprites are stateless functions of Date.now() + _animAnchors; nothing
+    // here touches Sim/Car state, so determinism is untouched (same pattern as
+    // the blinker pulse in _car).
+    _animLayer(rd, w, h) {
+      const sc = this.theme.scene;
+      if (sc === 'classic' || sc === 'rio_satellite') return;
+      const ctx = this.ctx, tNow = Date.now();
+      const a = this._animAnchors;
+      ctx.save();
+      if (a) {
+        // Chimney smoke — 3 rising, fading, drifting puffs per chimney
+        for (let i = 0; i < a.chimneys.length; i++) {
+          const ch = a.chimneys[i];
+          for (let p = 0; p < 3; p++) {
+            const phase = ((tNow / 1800) + p / 3 + i * 0.37) % 1;
+            const px = ch.x + Math.sin((phase * 4 + i) * Math.PI) * 1.6;
+            const py = ch.y - 1 - phase * 9;
+            const pr = 0.8 + phase * 1.8;
+            ctx.globalAlpha = (1 - phase) * (sc === 'night' ? 0.30 : 0.40);
+            ctx.fillStyle = sc === 'night' ? '#aab4c8' : '#e8e4dc';
+            ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+        // Swaying canopies — soft patches oscillating over the static forest
+        for (let i = 0; i < a.canopies.length; i++) {
+          const cp = a.canopies[i];
+          const sway = Math.sin(tNow / 900 + i * 1.7) * 1.1;
+          ctx.globalAlpha = 0.45;
+          ctx.fillStyle = sc === 'snow' ? '#e8f1f4' : (sc === 'night' ? '#264433' : '#57905d');
+          ctx.beginPath(); ctx.ellipse(cp.x + sway, cp.y, cp.r, cp.r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        // Pond ripples — expanding fading rings (skipped on the frozen snow pond)
+        if (a.pond && sc !== 'snow') {
+          const p = a.pond;
+          for (let rI = 0; rI < 2; rI++) {
+            const phase = ((tNow / 2400) + rI / 2) % 1;
+            ctx.globalAlpha = (1 - phase) * 0.35;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y, p.rx * (0.25 + phase * 0.6), p.ry * (0.25 + phase * 0.6), 0.15, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+      }
+      if (sc === 'night') {
+        // Twinkling subset of the scene's deterministic star field
+        for (let i = 0; i < 70; i += 3) {
+          const sx = (i * 61.8033) % w;
+          const sy = ((i * 37.519 + (i % 7) * 11.3) % (h * 0.96));
+          ctx.globalAlpha = (0.5 + 0.5 * Math.sin(tNow / 700 + i * 2.1)) * 0.55;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.arc(sx, sy, 0.55 + (i % 3) * 0.25, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      if (sc === 'snow') {
+        // Falling snowflakes — wrap vertically, drift sideways
+        for (let i = 0; i < 60; i++) {
+          const speed = 14 + (i % 5) * 5;
+          const fy = ((tNow / 1000) * speed + i * 73.7) % (h + 12) - 6;
+          const fx = (((i * 53.17 + Math.sin(tNow / 1300 + i) * 5) % w) + w) % w;
+          ctx.globalAlpha = 0.5 + (i % 3) * 0.15;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.arc(fx, fy, 0.7 + (i % 3) * 0.4, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.restore();
     }
     _scene(rd, w, h) {
+      this._animAnchors = null; // rio has no animated anchors; clear stale city_nature ones
       const ctx = this.ctx, t = this.theme, m = this._sceneMetrics(rd, w, h);
       const houseW = 30 * m.houseScale, houseH = 18 * m.houseScale, poolW = 22 * m.houseScale, poolH = 12 * m.houseScale;
       const churchBodyW = Math.min(m.wedgeWidth * 0.20, 20 * m.churchScale);
@@ -2795,6 +3106,49 @@
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath(); ctx.ellipse(x - rx * 0.25, y - ry * 0.2, rx * 0.2, ry * 0.15, 0, 0, Math.PI * 2); ctx.fill();
     }
+    _drawSheep(ctx, x, y, scale) {
+      const s = scale || 1;
+      const bw = 7 * s, bh = 5.5 * s;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.beginPath(); ctx.ellipse(x + 1.2 * s, y + 1.2 * s, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      // Fluffy body — overlapping white arcs
+      ctx.fillStyle = '#f8f6ee';
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x - bw * 0.22, y - bh * 0.12, bw * 0.3, bh * 0.32, 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + bw * 0.2, y - bh * 0.08, bw * 0.28, bh * 0.3, -0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, y + bh * 0.12, bw * 0.32, bh * 0.28, 0.1, 0, Math.PI * 2); ctx.fill();
+      // Dark head — small oval at front edge
+      ctx.fillStyle = '#3a3530';
+      ctx.beginPath(); ctx.ellipse(x + bw * 0.42, y - bh * 0.18, 1.6 * s, 1.2 * s, 0.5, 0, Math.PI * 2); ctx.fill();
+      // Leg stubs
+      ctx.fillStyle = '#4a4540';
+      ctx.fillRect(x - bw * 0.25, y + bh * 0.38, 0.9 * s, 1.4 * s);
+      ctx.fillRect(x + bw * 0.12, y + bh * 0.4, 0.9 * s, 1.4 * s);
+      // Outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.ellipse(x, y, bw / 2 + 0.4, bh / 2 + 0.4, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    _drawParkedCar(ctx, x, y, ang, color) {
+      // Decorative parked car — muted palette, no indicators, drawn into the
+      // static scene buffer. Deliberately distinct from live sim cars.
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(ang);
+      const pl = CAR_L * 0.82, pw = CAR_W * 0.82;
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(-pl / 2 + 1, -pw / 2 + 1, pl, pw);
+      ctx.fillStyle = color;
+      ctx.fillRect(-pl / 2, -pw / 2, pl, pw);
+      // Windshield + rear window hints
+      ctx.fillStyle = 'rgba(40, 55, 70, 0.55)';
+      ctx.fillRect(pl * 0.08, -pw * 0.32, pl * 0.2, pw * 0.64);
+      ctx.fillRect(-pl * 0.3, -pw * 0.32, pl * 0.14, pw * 0.64);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(-pl / 2, -pw / 2, pl, pw);
+      ctx.restore();
+    }
     _drawCoop(ctx, x, y, scale) {
       const s = scale || 1;
       const cw = 10 * s, ch = 8 * s;
@@ -2821,6 +3175,9 @@
       const zones = this._safeZones(rd, w, 6);
       const roadL = rd.cx - m.roadHalf;
       const roadR = rd.cx + m.roadHalf;
+      // Anchors recorded while placing scene elements — consumed by the night/snow
+      // overlay passes and the per-frame animation layer (smoke, ripples, halos).
+      const anchors = this._animAnchors = { lamps: [], chimneys: [], houses: [], pond: null, barn: null, canopies: [] };
 
       // ── Ground zones ──────────────────────────────────
       // ABOVE fork: both sides are nature (green)
@@ -2947,12 +3304,21 @@
       const barnX = farmL + farmW * 0.32;
       const barnY = farmTop + farmH * 0.35;
       this._drawTopDownBarn(ctx, barnX, barnY, barnW, barnH, t);
+      anchors.barn = { x: barnX, y: barnY, w: barnW, h: barnH };
 
       // Pond — using _drawPond primitive
       const pondCx = farmL + farmW * 0.78;
       const pondCy = farmTop + farmH * 0.82;
       const pondRx = 12 * m.baseScale, pondRy = 8 * m.baseScale;
       this._drawPond(ctx, pondCx, pondCy, pondRx, pondRy);
+      anchors.pond = { x: pondCx, y: pondCy, rx: pondRx, ry: pondRy };
+      // Canopy sway anchors — a few prominent V-area / upper-forest cluster spots
+      anchors.canopies.push(
+        { x: m.wedgeCenterX, y: rd.forkY - (rd.forkY - m.topWedgeY) * 0.20, r: 5.5 },
+        { x: m.wedgeCenterX - Math.max(22, m.wedgeWidth * 0.52) * 0.34, y: rd.forkY - (rd.forkY - m.topWedgeY) * 0.42, r: 4.5 },
+        { x: roadL * 0.42, y: rd.forkY * 0.28, r: 4 },
+        { x: w * 0.74, y: rd.forkY * 0.30, r: 4.5 }
+      );
 
       // Fenced animal pen — using _drawAnimalPen primitive
       const fX = farmL + farmW * 0.05, fY = farmTop + farmH * 0.58;
@@ -2982,6 +3348,14 @@
         if (lx > w - 6) continue; // don't draw off-canvas
         if (rng() > 0.5) this._drawCow(ctx, lx, ly, animalScale * 0.9);
         else this._drawPig(ctx, lx, ly, animalScale * 0.8);
+      }
+      // 2–4 sheep grazing below the pen (IDEAS_City_Nature #4)
+      const nSheep = Math.min(4, Math.max(2, Math.round(3 * m.baseScale)));
+      for (let sh = 0; sh < nSheep; sh++) {
+        const sx = fX + rng() * fW * 0.9;
+        const sy = fY + fH + 4 + rng() * 12;
+        if (sx - 4 < zones.right.min || sy > h - 8) continue; // zone + canvas guard
+        this._drawSheep(ctx, sx, sy, animalScale * 0.85);
       }
 
       // ── Chicken coop + flock (F9-T6 placement) ──
@@ -3051,6 +3425,22 @@
           ctx.fillRect(p.x - yp, p.y - yp, p.tw + yp * 2, p.h + yp * 2);
         }
         this._drawTopDownHouse(ctx, p.x, p.y, p.w, p.h, t, p.ci, p.chim);
+        anchors.houses.push({ x: p.x, y: p.y, w: p.w, h: p.h });
+        if (p.chim) {
+          const chS = Math.min(p.w, p.h) * 0.18;
+          anchors.chimneys.push({ x: p.x + p.w * 0.7 + chS / 2, y: p.y + p.h * 0.15 });
+        }
+      }
+
+      // ── Parked cars in front of ~35% of houses (IDEAS_City_Nature #5) ──
+      const parkedColors = ['#8a8d94', '#7a6a5a', '#5a6a7a', '#94867a'];
+      for (const p of placed) {
+        if (rng() > 0.35) continue;
+        const px = p.x + p.tw + 3 + CAR_L * 0.41;
+        const py = p.y + p.h * 0.5;
+        // Entire rotated rect must stay inside the left safe zone
+        if (px + CAR_L * 0.41 > zones.left.max) continue;
+        this._drawParkedCar(ctx, px, py, Math.PI / 2 + (rng() - 0.5) * 0.08, parkedColors[Math.floor(rng() * parkedColors.length)]);
       }
 
       // ── Benches + mailboxes near houses (F8-T4) ──
@@ -3131,6 +3521,7 @@
       const lampX = zones.left.max - 2; // just inside left safe zone, adjacent to road
       for (let ly = urbanTop + 8; ly < urbanBot - 8; ly += lampSpacing) {
         this._drawLamppost(ctx, lampX, ly, hScale);
+        anchors.lamps.push({ x: lampX, y: ly - 8 * hScale });
       }
 
       // ── Interior lampposts (F8-T3) — scattered between house clusters ──
@@ -3148,7 +3539,99 @@
         }
         if (tooClose) continue;
         this._drawLamppost(ctx, lx, ly, hScale * 0.85);
+        anchors.lamps.push({ x: lx, y: ly - 8 * hScale * 0.85 });
         interiorPlaced++;
+      }
+    }
+
+    // ── NOITE: city_nature scene + night overlay (veil, stars, moon, halos) ──
+    _sceneNight(rd, w, h, ctx) {
+      this._sceneCityNature(rd, w, h, ctx);
+      const a = this._animAnchors;
+      // Night veil — darkens the daytime geometry uniformly
+      ctx.fillStyle = 'rgba(8, 12, 34, 0.46)';
+      ctx.fillRect(0, 0, w, h);
+      // Stars — deterministic golden-angle scatter, denser near the top
+      for (let i = 0; i < 70; i++) {
+        const sx = (i * 61.8033) % w;
+        const sy = ((i * 37.519 + (i % 7) * 11.3) % (h * 0.96));
+        const sr = 0.35 + (i % 3) * 0.28;
+        ctx.fillStyle = `rgba(245, 248, 255, ${0.35 + (i % 5) * 0.12})`;
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+      }
+      // Moon — top-right, clear of the road
+      const moonX = Math.min(w - 14, rd.cx + rd.halfW() + (w - rd.cx - rd.halfW()) * 0.62);
+      const moonY = h * 0.055;
+      const moonR = Math.max(5, Math.min(9, w * 0.035));
+      const mg = ctx.createRadialGradient(moonX, moonY, moonR * 0.4, moonX, moonY, moonR * 3.2);
+      mg.addColorStop(0, 'rgba(250, 248, 230, 0.55)');
+      mg.addColorStop(1, 'rgba(250, 248, 230, 0)');
+      ctx.fillStyle = mg;
+      ctx.beginPath(); ctx.arc(moonX, moonY, moonR * 3.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f4f0da';
+      ctx.beginPath(); ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(180, 180, 160, 0.35)';
+      ctx.beginPath(); ctx.arc(moonX - moonR * 0.3, moonY - moonR * 0.15, moonR * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(moonX + moonR * 0.25, moonY + moonR * 0.3, moonR * 0.15, 0, Math.PI * 2); ctx.fill();
+      // Warm window-light spill around houses (post-veil so it reads as lit)
+      for (const p of a.houses) {
+        const gx = p.x + p.w / 2, gy = p.y + p.h / 2;
+        const gr = Math.max(p.w, p.h) * 1.15;
+        const hg = ctx.createRadialGradient(gx, gy, gr * 0.25, gx, gy, gr);
+        hg.addColorStop(0, 'rgba(255, 214, 120, 0.22)');
+        hg.addColorStop(1, 'rgba(255, 214, 120, 0)');
+        ctx.fillStyle = hg;
+        ctx.beginPath(); ctx.arc(gx, gy, gr, 0, Math.PI * 2); ctx.fill();
+      }
+      // Lamppost halos
+      for (const lp of a.lamps) {
+        const lg = ctx.createRadialGradient(lp.x, lp.y, 1, lp.x, lp.y, 10);
+        lg.addColorStop(0, 'rgba(255, 230, 130, 0.50)');
+        lg.addColorStop(1, 'rgba(255, 230, 130, 0)');
+        ctx.fillStyle = lg;
+        ctx.beginPath(); ctx.arc(lp.x, lp.y, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffe9a0';
+        ctx.beginPath(); ctx.arc(lp.x, lp.y, 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // ── NEVE: city_nature scene + snow overlay (roof caps, frozen pond, speckle) ──
+    _sceneSnow(rd, w, h, ctx) {
+      this._sceneCityNature(rd, w, h, ctx);
+      const a = this._animAnchors;
+      // Snow caps on house roofs — white band over the upper half of each roof
+      for (const p of a.houses) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+        ctx.fillRect(p.x - 1.5, p.y - 1.5, p.w + 3, (p.h + 3) * 0.52);
+        ctx.fillStyle = 'rgba(235, 242, 250, 0.5)';
+        ctx.fillRect(p.x - 1.5, p.y - 1.5 + (p.h + 3) * 0.52, p.w + 3, (p.h + 3) * 0.16);
+      }
+      // Snow cap on the barn
+      if (a.barn) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+        ctx.fillRect(a.barn.x - 2, a.barn.y - 2, a.barn.w + 4, (a.barn.h + 4) * 0.45);
+      }
+      // Frozen pond — icy sheen + cracks
+      if (a.pond) {
+        const p = a.pond;
+        ctx.fillStyle = 'rgba(240, 248, 255, 0.55)';
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, p.rx, p.ry, 0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(160, 190, 215, 0.8)';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(p.x - p.rx * 0.6, p.y - p.ry * 0.2);
+        ctx.lineTo(p.x + p.rx * 0.1, p.y + p.ry * 0.15);
+        ctx.lineTo(p.x + p.rx * 0.55, p.y - p.ry * 0.3);
+        ctx.moveTo(p.x - p.rx * 0.15, p.y - p.ry * 0.55);
+        ctx.lineTo(p.x + p.rx * 0.05, p.y + p.ry * 0.5);
+        ctx.stroke();
+      }
+      // Ground speckle — subtle cool dots for snow texture (deterministic scatter)
+      for (let i = 0; i < 150; i++) {
+        const sx = (i * 73.137) % w;
+        const sy = (i * 41.77 + (i % 5) * 17.9) % h;
+        ctx.fillStyle = i % 2 ? 'rgba(255, 255, 255, 0.5)' : 'rgba(190, 205, 225, 0.35)';
+        ctx.beginPath(); ctx.arc(sx, sy, 0.5 + (i % 3) * 0.3, 0, Math.PI * 2); ctx.fill();
       }
     }
     _road(rd, h) {
@@ -3213,6 +3696,18 @@
     _car(car, alpha) {
       const ctx = this.ctx; ctx.save(); ctx.globalAlpha = alpha; ctx.translate(car.x, car.y); ctx.rotate(car.th);
       if (car.speed < 0.06 && car.speed >= 0 && this.sim.started && car.seg === 'main') ctx.globalAlpha = alpha * (0.5 + 0.5 * Math.sin(Date.now() / 200 + car.id * 3));
+      // Night headlights — scene lighting drawn UNDER the body. The body fill below
+      // remains the exact CAR_L×CAR_W rounded rect (visual-hitbox invariant).
+      if (this.theme.scene === 'night' && this.sim.started) {
+        const hlY = CAR_W * 0.28, beamR = CAR_L * 0.85;
+        for (const side of [-hlY, hlY]) {
+          const bg = ctx.createRadialGradient(CAR_L / 2, side, 0.5, CAR_L / 2 + beamR * 0.45, side, beamR);
+          bg.addColorStop(0, 'rgba(255, 240, 170, 0.34)');
+          bg.addColorStop(1, 'rgba(255, 240, 170, 0)');
+          ctx.fillStyle = bg;
+          ctx.beginPath(); ctx.arc(CAR_L / 2 + beamR * 0.45, side, beamR, 0, Math.PI * 2); ctx.fill();
+        }
+      }
       const hw = CAR_W / 2, hl = CAR_L / 2, R = 2.5; ctx.beginPath(); ctx.moveTo(-hl + R, -hw); ctx.lineTo(hl - R, -hw);
       ctx.quadraticCurveTo(hl, -hw, hl, -hw + R); ctx.lineTo(hl, hw - R); ctx.quadraticCurveTo(hl, hw, hl - R, hw);
       ctx.lineTo(-hl + R, hw); ctx.quadraticCurveTo(-hl, hw, -hl, hw - R); ctx.lineTo(-hl, -hw + R);
@@ -3224,18 +3719,65 @@
         if (tm === 'maneuver' || car.maneuvering) {
           ctx.fillStyle = 'rgba(255,50,0,0.12)'; ctx.fillRect(-hl, -hw, CAR_L, CAR_W);
         }
-        // Mode border strokes
-        if (tm === 'maneuver' || car.maneuvering) {
-          ctx.setLineDash([3, 2]); ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+        // Mode border strokes — blended over ~120ms on mode change. Renderer-only
+        // state (this._modeAnim keyed by car.id); first sighting draws steady
+        // state immediately, so structural spies with no prior state see the
+        // exact per-mode ops (card BO).
+        const SPECS = {
+          maneuver: { color: '#ff4400', dash: [3, 2], width: 1.5 },
+          yield: { color: '#ddaa44', dash: [], width: 1.0 },
+          hold_exit: { color: '#55bb77', dash: [1.5, 1.5], width: 0.7 },
+          batch: { color: '#55bb77', dash: [], width: 0.7 },
+        };
+        const modeKey = (tm === 'maneuver' || car.maneuvering) ? 'maneuver'
+          : (tm === 'yield' || car.zoneYielding) ? 'yield'
+            : (tm === 'hold_exit' || tm === 'batch') ? tm : 'none';
+        if (!this._modeAnim) this._modeAnim = new Map();
+        const nowMs = Date.now();
+        let entry = this._modeAnim.get(car.id);
+        if (!entry) {
+          entry = { mode: modeKey, prevMode: null, t0: 0 }; // first sighting: steady
+          this._modeAnim.set(car.id, entry);
+        } else if (entry.mode !== modeKey) {
+          entry.prevMode = entry.mode; entry.mode = modeKey; entry.t0 = nowMs;
         }
-        if (tm === 'yield' || car.zoneYielding) {
-          ctx.setLineDash([]); ctx.strokeStyle = '#ddaa44'; ctx.lineWidth = 1.0; ctx.stroke();
-        }
-        if (tm === 'hold_exit') {
-          ctx.setLineDash([1.5, 1.5]); ctx.strokeStyle = '#55bb77'; ctx.lineWidth = 0.7; ctx.stroke(); ctx.setLineDash([]);
-        }
-        if (tm === 'batch') {
-          ctx.setLineDash([]); ctx.strokeStyle = '#55bb77'; ctx.lineWidth = 0.7; ctx.stroke();
+        const BLEND_MS = 120;
+        const el2 = nowMs - entry.t0;
+        const blending = entry.t0 > 0 && el2 < BLEND_MS;
+        const blend = blending ? el2 / BLEND_MS : 1;
+        const toSpec = SPECS[modeKey] || null;
+        const fromSpec = blending ? (SPECS[entry.prevMode] || null) : null;
+        const lerpHex = (ha, hb, tt) => {
+          const pa = parseInt(ha.slice(1), 16), pb = parseInt(hb.slice(1), 16);
+          const r = Math.round(((pa >> 16) & 255) + (((pb >> 16) & 255) - ((pa >> 16) & 255)) * tt);
+          const g = Math.round(((pa >> 8) & 255) + (((pb >> 8) & 255) - ((pa >> 8) & 255)) * tt);
+          const b = Math.round((pa & 255) + ((pb & 255) - (pa & 255)) * tt);
+          return `rgb(${r},${g},${b})`;
+        };
+        if (toSpec && fromSpec) {
+          // Mode→mode: lerp color/width, dash pattern switches at the midpoint
+          ctx.setLineDash(blend < 0.5 ? fromSpec.dash : toSpec.dash);
+          ctx.strokeStyle = lerpHex(fromSpec.color, toSpec.color, blend);
+          ctx.lineWidth = fromSpec.width + (toSpec.width - fromSpec.width) * blend;
+          ctx.stroke(); ctx.setLineDash([]);
+        } else if (toSpec) {
+          // none→mode (or steady): fade in during blend, then exact per-mode ops
+          const ga = ctx.globalAlpha;
+          if (blending) ctx.globalAlpha = ga * blend;
+          ctx.setLineDash(toSpec.dash);
+          ctx.strokeStyle = toSpec.color;
+          ctx.lineWidth = toSpec.width;
+          ctx.stroke(); ctx.setLineDash([]);
+          ctx.globalAlpha = ga;
+        } else if (fromSpec) {
+          // mode→none: fade the old border out
+          const ga = ctx.globalAlpha;
+          ctx.globalAlpha = ga * (1 - blend);
+          ctx.setLineDash(fromSpec.dash);
+          ctx.strokeStyle = fromSpec.color;
+          ctx.lineWidth = fromSpec.width;
+          ctx.stroke(); ctx.setLineDash([]);
+          ctx.globalAlpha = ga;
         }
         // Directional arrow for batch/hold_exit
         if (tm === 'batch' || tm === 'hold_exit') {

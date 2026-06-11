@@ -26,6 +26,24 @@ Cards still intentionally survey-only after this audit:
 Notes on audit cost:
 - Some heavy mixed-traffic cards are expensive enough that combined CLI runs can exceed local shell timeouts. The harness is correct; the practical workflow is to run focused subsets or single cards for the heaviest cases.
 
+0.1 Audit Snapshot — 2026-06-10
+Verified by direct CLI runs in this session:
+- Guards ALL GREEN: `node run_traffic_suite.js --id S --id X --id AA --id AH` → S 4.33s, X 13.72s, AA 5.33s, AH 24.58s, 0 failures. The AH timeout documented in PLAN_Maneuver_Conflict_Overhaul's 2026-03-13 baseline is resolved (perf waves P1–P5 + sleep).
+- `Q` (paradox race) still RED: 1L=10.00s, 2L=7.33s, 3L=6.75s at 50/50 — multi-lane finishes faster, opposite of the design premise. Notably 2L mixed (7.33) ≈ 2L same-target (7.40): the fork scheduler currently adds ~zero crossing cost, which is why the paradox fails. Calibration scheduled.
+- `R` (completion race) PASS: 10.00/9.00/8.68.
+- `G` 1L baseline 10.00s PASS. `H` RED 7.40s (target ≤5.75). `I` RED 6.75s (target ≤3.83).
+- Active red targets remain: `C`, `H`, `I`, `Q`, `V`, `Y`.
+- The `package.json` with `traffic:test:guards/survey/focus` scripts referenced above did not actually exist until this date; it has now been created to match the documented interface.
+
+0.2 Paradox Calibration — 2026-06-10 (later the same session)
+`Q` is now GREEN. The staged parameter sweep (`sweep_paradox_params.js`) found the root cause and the fix:
+- Scheduler constants (`BATCH_HOLD_TICKS` 24–96, `MAX_BATCH_SIZE` 1, `EXIT_CLEARANCE` 44–88) are dead levers: Q times stayed byte-identical because the batch scheduler engaged exactly once per run (`batchGrantCount` 0/1/1 across 1L/2L/3L).
+- Root cause: MOBIL demand balancing pre-sorts cars into their target's lane upstream. Diagnostic on the 2L case: only 16 ticks in the whole run had any car near the crossing point, and ZERO ticks had both targets there simultaneously. No crossing conflict ever materialized — §15.1's own demand balancing dissolved the conflict the paradox premise (§1, README) requires.
+- Fix: `COMMIT_DIST` 90 → 300 (§15.1 constant; `BATCH_APPROACH_DIST` derives as +80). Early lane lock means wrong-lane cars must actually cross at the fork: grants rise to 4–5 per run, maneuvers ~10, and 1L is strictly fastest on 4/4 seed triples (301/311/321/331). 420 was rejected: one 2L DNF and AH at its tick ceiling.
+- Verified after calibration: Q pass (10.00/15.95/12.53), R pass, G byte-identical (10.00), H byte-identical (7.40), I improved 6.75 → 6.57 (less lane-change churn), guards S/X/AA/AH all PASS (2.67/24.68/5.33/41.85 — mixed-traffic times legitimately shifted; AH comfortably within budget).
+- Card `Q` reclassified `known_red` → `survey_green` (promote to guard after it survives a few more sessions). A `CONFLICT_CROSS_SPEED` zone-speed-cap lever was added to the engine but ships disabled (=1) — redundant once COMMIT_DIST binds; kept as a documented future tuning lever.
+- Active red targets after this change: `C`, `H`, `I`, `V`, `Y`.
+
 1. Overview
 V18 is a major rewrite addressing six defect categories and adding coordinated maneuvering, visual improvements, and UI changes. Every system interaction has been designed through iterative discussion. This document captures every decision made and specifies exactly what to build and test.
 

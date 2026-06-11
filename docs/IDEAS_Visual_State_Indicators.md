@@ -3,11 +3,11 @@
 **Generated from:** docs/DISCOVERY_Visual_State_Indicators.md
 **Date:** 2026-03-15
 
-## Deferred Ideas
+## Deferred Ideas — both SHIPPED 2026-06-10
 
-1. **Animated mode transitions** — Smooth fade between indicator states when a car changes trafficMode (e.g., yield→batch). Instead of instant visual switch, interpolate border color and dash pattern over 2-3 frames. Adds polish for the educational audience but requires per-car animation state tracking.
+1. **Animated mode transitions** — ✅ SHIPPED. `Ren._car` blends indicator borders over ~120ms on trafficMode change (RGB lerp + dash switch at midpoint; fade in/out for none↔mode), tracked in a renderer-only Map keyed by car id. Card BO stays green (first sighting draws steady state).
 
-2. **Interactive hover/tooltip** — Hover over a car in the browser to see its full state info: trafficMode, speed, target, noProgressTicks, maneuver phase, batch priority, etc. Would be a powerful debugging tool AND educational aid. Requires mouse event handling on the canvas and a floating DOM tooltip or canvas-drawn overlay.
+2. **Interactive hover/tooltip** — ✅ SHIPPED. `Ren.carAt(cssX, cssY)` inverse-transforms the stored view and hit-tests rotated car rects; `index.html` shows a floating DOM tooltip (id, mode, speed, target, stuck ticks, batch, maneuver phase — PT/EN), throttled, active while paused.
 
 ## Source
 

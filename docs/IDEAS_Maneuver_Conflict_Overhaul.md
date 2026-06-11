@@ -21,16 +21,11 @@ These were identified during discovery but are explicitly out of scope for the c
 
 ---
 
-### 2. Paradox Tuning
+### 2. Paradox Tuning ✅ DONE (2026-06-10)
 
 **What:** IDM and batch scheduler parameter calibration to reliably demonstrate Braess's paradox — 1L traffic should consistently complete faster than 2L+ traffic.
 
-**Why deferred:** This is a separate tuning task. The current overhaul is mechanical bug fixes only. Paradox behavior may improve as a side effect (fewer false maneuver triggers = fewer fork jams), but guaranteed paradox demonstration requires deliberate calibration.
-
-**Considerations:**
-- `IDM_S0 = 6` and `IDM_T = 2` control following distance. Too tight causes overlaps; too loose lets single-lane traffic approach multi-lane speed.
-- `BATCH_HOLD_TICKS = 24` and batch size (≤2) affect fork throughput.
-- Must run monotonic speed test (card G or Test 3) after any IDM change.
+**Resolution:** Implemented via `COMMIT_DIST` 90 → 300 (not IDM/scheduler constants — those proved to be dead levers; the batch scheduler engaged exactly once per Q run). Root cause: MOBIL demand balancing pre-sorted cars into their target lane, so crossing conflicts never materialized. Early lane commitment forces real crossings. Card Q green on 4/4 seed triples; G/H byte-identical; I improved; guards green. Full story in `v18_plan.md` §0.2 and `sweep_paradox_params.js`.
 
 ---
 

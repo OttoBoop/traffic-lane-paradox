@@ -1,0 +1,11 @@
+{
+  "name": "traffic-lane-paradox",
+  "version": "19.0.0",
+  "private": true,
+  "description": "Interactive browser simulation of Braess's paradox at a Y-fork — adding lanes can slow everyone down.",
+  "scripts": {
+    "traffic:test:guards": "node run_traffic_suite.js --id S --id X --id AA --id AH",
+    "traffic:test:survey": "node run_traffic_suite.js --gate survey",
+    "traffic:test:focus": "node run_traffic_suite.js"
+  }
+}
