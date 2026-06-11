@@ -1,7 +1,7 @@
 # Traffic Lane Paradox — Visual State Indicators
 
 **Generated:** 2026-03-15
-**Status:** Draft
+**Status:** Shipped (commit `cf6f3f6` — unified mode borders, tint, arrows, legend; status corrected 2026-06-10)
 **Discovery:** [DISCOVERY_Visual_State_Indicators.md](DISCOVERY_Visual_State_Indicators.md)
 **Parent Plan:** [PLAN_Maneuver_Conflict_Overhaul.md](PLAN_Maneuver_Conflict_Overhaul.md) (Feature 4)
 

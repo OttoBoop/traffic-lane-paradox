@@ -1,7 +1,7 @@
 # Car Overlap Debug & Universal Block — Implementation Plan
 
 **Generated:** 2026-03-14
-**Status:** Draft
+**Status:** Diagnostics shipped (status corrected 2026-06-10): `_diagnosticOverlapCheck` + `nearMissLog`/`overlapEventLog` live in `traffic_core.js` (~line 654), RED card BE in the suite. The overlap FIX itself remains a follow-up discovery per §2.4, and the browser visual debugger stays deferred in [IDEAS_Car_Overlap_Debug_Universal_Block.md](IDEAS_Car_Overlap_Debug_Universal_Block.md)
 **Discovery:** [DISCOVERY_Car_Overlap_Debug_Universal_Block.md](../../docs/DISCOVERY_Car_Overlap_Debug_Universal_Block.md)
 
 ---

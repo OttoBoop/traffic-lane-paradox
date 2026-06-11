@@ -2,7 +2,7 @@
 
 **Generated:** 2026-03-14
 **Updated:** 2026-03-15 (Session 2 — Enhancement Pass)
-**Status:** In Progress
+**Status:** Complete (Session 1 + Session 2 shipped — commits `98aeefe`, `4ab1a47`; status corrected 2026-06-10. Deferred ideas live in [IDEAS_City_Nature_Background.md](IDEAS_City_Nature_Background.md))
 **Discovery:** [DISCOVERY_City_Nature_Background.md](DISCOVERY_City_Nature_Background.md)
 
 ---
