@@ -18,6 +18,9 @@
   const PROJ_MARGIN = 2;
   const PROJ_BROAD_PHASE = 60;
   const PROJ_BROAD_PHASE_SQ = PROJ_BROAD_PHASE * PROJ_BROAD_PHASE;
+  // Cell must be >= the max neighbor query radius (PROJ_BROAD_PHASE + extraRange 30)
+  // so a query never needs to scan beyond the adjacent cell ring.
+  const NEIGHBOR_GRID_CELL = PROJ_BROAD_PHASE + 30;
   const INTERSECT_WIDEN = 1.3;
   const MAIN_LANE_SCALE = 1.10;
   const BRANCH_LANE_SCALE = 1.25;
@@ -1235,8 +1238,9 @@
         c.speed = c.desSpd;
       }
 
-      // Clear per-tick neighbor cache (P1) and pre-compute trig (P3).
+      // Clear per-tick neighbor cache (P1), pre-compute trig (P3), rebuild spatial grid.
       for (const c of active) { c._cachedNeighbors = null; c._tickCos = Math.cos(c.th); c._tickSin = Math.sin(c.th); }
+      this._rebuildNeighborGrid(allActive);
       // Commit only legal next poses. Cars never move into an illegal pose and then revert.
       const moveOrder = [...active].sort((a, b) => this._movementPriority(b) - this._movementPriority(a));
       for (const c of moveOrder) {
@@ -1683,6 +1687,18 @@
     _relevantLegalNeighbors(c, active, extraRange = 30) {
       if (c._cachedNeighbors) return c._cachedNeighbors;
       const range = PROJ_BROAD_PHASE + extraRange;
+      // Grid fast path only when the query targets the exact car set the grid was
+      // built from (this tick's allActive). Other caller sets — e.g. the awake-only
+      // `active` array in maneuver-exit probes — keep the brute scan, so results
+      // are identical by construction either way.
+      const result = (this._neighborGrid && active === this._neighborGridSource)
+        ? this._relevantLegalNeighborsGrid(c, range)
+        : this._relevantLegalNeighborsBrute(c, active, range);
+      c._cachedNeighbors = result;
+      return result;
+    }
+
+    _relevantLegalNeighborsBrute(c, active, range) {
       const rangeSq = range * range;
       const overlapNeighbors = [];
       const gapNeighbors = [];
@@ -1699,9 +1715,67 @@
         }
         gapNeighbors.push(o);
       }
-      const result = { overlapNeighbors, gapNeighbors };
-      c._cachedNeighbors = result;
-      return result;
+      return { overlapNeighbors, gapNeighbors };
+    }
+
+    _relevantLegalNeighborsGrid(c, range) {
+      const rangeSq = range * range;
+      const overlapNeighbors = [];
+      const gapNeighbors = [];
+      const grid = this._neighborGrid;
+      const cx0 = Math.floor((c.x - range) / NEIGHBOR_GRID_CELL);
+      const cx1 = Math.floor((c.x + range) / NEIGHBOR_GRID_CELL);
+      const cy0 = Math.floor((c.y - range) / NEIGHBOR_GRID_CELL);
+      const cy1 = Math.floor((c.y + range) / NEIGHBOR_GRID_CELL);
+      for (let gx = cx0; gx <= cx1; gx++) {
+        for (let gy = cy0; gy <= cy1; gy++) {
+          const cell = grid.get(gx + ',' + gy);
+          if (!cell) continue;
+          for (const o of cell) {
+            if (o.id === c.id || o.done) continue;
+            const dx = c.x - o.x, dy = c.y - o.y;
+            if (dx * dx + dy * dy > rangeSq) continue;
+            overlapNeighbors.push(o);
+            if (c.seg !== o.seg) continue;
+            if (c.seg === 'main') {
+              if (c.lane !== o.lane) continue;
+            } else if (c.pathKey !== o.pathKey) {
+              continue;
+            }
+            gapNeighbors.push(o);
+          }
+        }
+      }
+      return { overlapNeighbors, gapNeighbors };
+    }
+
+    _rebuildNeighborGrid(cars) {
+      const grid = this._neighborGrid || (this._neighborGrid = new Map());
+      grid.clear();
+      this._neighborGridSource = cars;
+      for (const o of cars) {
+        const key = Math.floor(o.x / NEIGHBOR_GRID_CELL) + ',' + Math.floor(o.y / NEIGHBOR_GRID_CELL);
+        o._gridKey = key;
+        const cell = grid.get(key);
+        if (cell) cell.push(o); else grid.set(key, [o]);
+      }
+    }
+
+    // Re-bucket a car after its position changed. Called from _commitPose — the
+    // universal position choke point — so the grid stays live through mid-tick
+    // sequential commits, sleeping-car moves, and post-move correction passes.
+    _gridReindexCar(c) {
+      if (!this._neighborGrid || c._gridKey === undefined) return;
+      const key = Math.floor(c.x / NEIGHBOR_GRID_CELL) + ',' + Math.floor(c.y / NEIGHBOR_GRID_CELL);
+      if (key === c._gridKey) return;
+      const old = this._neighborGrid.get(c._gridKey);
+      if (old) {
+        const i = old.indexOf(c);
+        if (i >= 0) old.splice(i, 1);
+      }
+      c._gridKey = key;
+      const cell = this._neighborGrid.get(key);
+      if (cell) cell.push(c); else this._neighborGrid.set(key, [c]);
     }
 
     _poseOverlapsCars(c, pose, active, margin = PROJ_MARGIN) {
@@ -1793,6 +1867,7 @@
         }
       }
       c.x = nx; c.y = ny; c.th = nth;
+      this._gridReindexCar(c);
       return true;
     }
 

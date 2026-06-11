@@ -4172,7 +4172,7 @@
         let checks = 0, mismatches = 0, firstMismatch = null;
         if (gridWired) {
           sim.start();
-          const range = PROJ_BROAD_PHASE + 30;
+          const range = 90; // PROJ_BROAD_PHASE (60) + default extraRange (30)
           const ids = (arr) => arr.map((o) => o.id).sort((a, b) => a - b).join(",");
           for (let t = 0; t < 600 && !sim.finished; t++) {
             sim.tick(1, { v0: V0_DEF });
