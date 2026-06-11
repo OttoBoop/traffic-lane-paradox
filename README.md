@@ -10,7 +10,7 @@ Users set up side-by-side simulations with different lane counts (1 lane, 2 lane
 
 ## Architecture
 
-The simulation is a single HTML file (`traffic_v18.html`) backed by a shared simulation engine (`traffic_core.js`). No build system, no external dependencies beyond a Google Fonts import. The renderer runs in-browser; the simulation core also runs headlessly in Node.js for testing.
+The simulation is a single HTML file (`index.html` — GitHub Pages ready; formerly `traffic_v18.html`) backed by a shared simulation engine (`traffic_core.js`). No build system, no external dependencies beyond a Google Fonts import. The renderer runs in-browser; the simulation core also runs headlessly in Node.js for testing.
 
 ### Core Classes
 
@@ -147,7 +147,7 @@ node run_traffic_suite.js --id S --id X --id AA --id AH
 
 | File | Purpose |
 |------|---------|
-| `traffic_v18.html` | Interactive browser UI — open this to run the simulator |
+| `index.html` | Interactive browser UI — open this to run the simulator (formerly `traffic_v18.html`) |
 | `traffic_core.js` | Simulation engine: Road, Car, Sim, Ren classes and all physics |
 | `traffic_test_suite.js` | Shared test card registry (A–Y + AA–BP), scenario definitions and verdict functions |
 | `run_traffic_suite.js` | Node.js CLI runner for headless test execution |

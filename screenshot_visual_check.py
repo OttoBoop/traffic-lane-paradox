@@ -1,5 +1,5 @@
 """
-Visual check screenshot automation for traffic_v18.html.
+Visual check screenshot automation for index.html (formerly traffic_v18.html).
 
 Takes screenshots at:
   - Start (before Play)
@@ -19,7 +19,7 @@ import time
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-HTML_PATH = os.path.join(os.path.dirname(__file__), "traffic_v18.html")
+HTML_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 FILE_URL = "file:///" + HTML_PATH.replace("\\", "/")
 OUT_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
 N_CARS = 40
