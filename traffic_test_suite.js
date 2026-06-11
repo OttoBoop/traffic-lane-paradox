@@ -1591,7 +1591,10 @@
     {
       id: "Q",
       section: "mixed",
-      family: "known_red",
+      // Flipped known_red -> survey_green 2026-06-10 after COMMIT_DIST=300
+      // calibration made 1L fastest on 4/4 seed triples. Kept at survey (not
+      // guard) until it survives a few more sessions — heavy 3-sim race.
+      family: "survey_green",
       name: "Paradox race",
       proof:
         "1L, 2L, 3L at 50/50. The pass condition is that all complete and 1L finishes fastest.",

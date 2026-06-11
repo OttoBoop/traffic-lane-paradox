@@ -27,7 +27,14 @@
   const BRANCH_WIDTH_TRANSITION_T = 0.24;
   const SPLIT_WALL_GAP = 4;
   const BRANCH_SAMPLE_COUNT = 60;
-  const COMMIT_DIST = 90;
+  // Paradox calibration (2026-06-10): 300 locks lane choice early enough that
+  // wrong-lane cars must actually CROSS at the fork instead of pre-sorting via
+  // MOBIL demand balancing. At the old 90, a 2L/10-car 50/50 run had ZERO ticks
+  // with both targets simultaneously near the crossing point (no conflict, no
+  // paradox: Q was 10.00/7.33/6.75). At 300, card Q passes on 4/4 seed triples
+  // (e.g. 10.00/15.95/12.53) with guards green. 420 was rejected: occasional
+  // 2L DNF + AH at its tick ceiling. See sweep_paradox_params.js.
+  const COMMIT_DIST = 300;
   const BATCH_APPROACH_DIST = COMMIT_DIST + 80;
   const EXIT_CLEARANCE = CAR_L * 2;
   const MAX_BATCH_SIZE = 2;
