@@ -460,6 +460,31 @@
     .dm {
       background: #ff4400
     }
+
+    .car-tip {
+      position: fixed;
+      display: none;
+      z-index: 50;
+      pointer-events: none;
+      background: rgba(20, 42, 44, 0.92);
+      color: #e8f4ee;
+      border: 1px solid rgba(64, 162, 145, 0.5);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 10px;
+      line-height: 1.65;
+      letter-spacing: .4px;
+      box-shadow: 0 10px 26px rgba(15, 50, 48, .35);
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
+      max-width: 220px;
+      white-space: nowrap
+    }
+
+    .car-tip b {
+      color: #7fd4c0;
+      font-weight: 500
+    }
   </style>
 </head>
 
@@ -487,6 +512,7 @@
     </div>
   </div>
   <div class="sim" id="simC"></div>
+  <div class="car-tip" id="carTip"></div>
   <div class="ftr"><span><span class="dt dl"></span><span data-i18n="wantsLeft">quer esquerda</span></span><span><span class="dt dr"></span><span data-i18n="wantsRight">quer direita</span></span><span><span class="dt dy"></span><span data-i18n="yielding">cedendo</span></span><span><span class="dt db"></span><span data-i18n="crossing">cruzando</span></span><span><span class="dt dm"></span><span data-i18n="maneuvering">manobrando</span></span></div>
 
   <script src="traffic_core.js"></script>
@@ -506,6 +532,9 @@
         lane: 'Faixa', lanes: 'Faixas',
         wantsLeft: 'quer esquerda', wantsRight: 'quer direita',
         yielding: 'cedendo', crossing: 'cruzando', maneuvering: 'manobrando',
+        ttCar: 'Carro', ttMode: 'modo', ttSpeed: 'velocidade', ttTarget: 'alvo',
+        ttStuck: 'ticks parado', ttBatch: 'batch', ttPhase: 'fase da manobra',
+        ttLeft: 'esquerda', ttRight: 'direita',
         rank: ['1º','2º','3º','4º','5º','6º']
       },
       en: {
@@ -521,6 +550,9 @@
         lane: 'Lane', lanes: 'Lanes',
         wantsLeft: 'wants left', wantsRight: 'wants right',
         yielding: 'yielding', crossing: 'crossing', maneuvering: 'maneuvering',
+        ttCar: 'Car', ttMode: 'mode', ttSpeed: 'speed', ttTarget: 'target',
+        ttStuck: 'stuck ticks', ttBatch: 'batch', ttPhase: 'maneuver phase',
+        ttLeft: 'left', ttRight: 'right',
         rank: ['1st','2nd','3rd','4th','5th','6th']
       }
     };
@@ -600,6 +632,35 @@
     ['nCars', 'split'].forEach(id => { $(id).onchange = () => { if (gRun) { gRun = false; $('bPlay').textContent = t('play'); $('bPlay').classList.remove('on'); cancelAnimationFrame(anim); } rebuild(); }; });
     window.addEventListener('resize', () => { resize(); rens.forEach(r => r._invalidateSceneBuf()); sims.forEach((s, i) => { const cv = cvs[i]; if (cv) { const logical = logicalCanvasSize(cv); s.init(logical.w, logical.h); } }); renderAll(); });
     $('themeSelect').onchange = e => { const key = e.target.value; const th = RENDER_THEMES[key]; if (!th) return; rens.forEach(r => { r.theme = th; r._invalidateSceneBuf(); }); renderAll(); };
+    /* ── Car hover tooltip (works while paused — ideal inspection moment) ── */
+    const tipEl = $('carTip');
+    let tipLast = 0;
+    $('simC').addEventListener('mousemove', e => {
+      if (!(e.target instanceof HTMLCanvasElement)) { tipEl.style.display = 'none'; return; }
+      const now = performance.now();
+      if (now - tipLast < 50) return;
+      tipLast = now;
+      const i = cvs.indexOf(e.target);
+      if (i < 0 || !rens[i]) { tipEl.style.display = 'none'; return; }
+      const rect = e.target.getBoundingClientRect();
+      const car = rens[i].carAt(e.clientX - rect.left, e.clientY - rect.top);
+      if (!car) { tipEl.style.display = 'none'; return; }
+      const tgt = car.target === 'left' ? t('ttLeft') : t('ttRight');
+      tipEl.innerHTML =
+        `<b>${t('ttCar')} #${car.id}</b><br>` +
+        `${t('ttMode')}: <b>${car.trafficMode}</b><br>` +
+        `${t('ttSpeed')}: ${(car.speed || 0).toFixed(2)} · ${t('ttTarget')}: ${tgt}<br>` +
+        `${t('ttStuck')}: ${Math.round(car.noProgressTicks || 0)}` +
+        (car.batchId !== null && car.batchId !== undefined ? ` · ${t('ttBatch')}: ${car.batchId}` : '') +
+        (car.maneuvering ? `<br>${t('ttPhase')}: ${Math.floor((car.maneuverTimer || 0) / 12) % 4}` : '');
+      tipEl.style.display = 'block';
+      const tw = tipEl.offsetWidth, tH = tipEl.offsetHeight;
+      let lx = e.clientX + 14, ly = e.clientY + 12;
+      if (lx + tw > innerWidth - 6) lx = e.clientX - tw - 10;
+      if (ly + tH > innerHeight - 6) ly = e.clientY - tH - 8;
+      tipEl.style.left = lx + 'px'; tipEl.style.top = ly + 'px';
+    });
+    $('simC').addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
     $('langPt').onclick = () => applyLang('pt');
     $('langEn').onclick = () => applyLang('en');
     /* Idle render loop: keeps scene animations (smoke, snowfall, twinkle) and

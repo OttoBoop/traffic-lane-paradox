@@ -2630,6 +2630,20 @@
       this._lastView = { scale, offsetX, offsetY, logicalW, logicalH };
       ctx.restore();
     }
+    // Hit-test a CSS-pixel canvas coordinate against live car rects (+2px slack).
+    // Uses the view transform stored by draw(). Returns the car or null.
+    carAt(cssX, cssY) {
+      const v = this._lastView;
+      if (!v || !v.scale) return null;
+      const wx = (cssX - v.offsetX) / v.scale;
+      const wy = (cssY - v.offsetY) / v.scale;
+      for (const car of this.sim.cars) {
+        if (car.done) continue;
+        const loc = toLocal(wx, wy, car.x, car.y, car.th);
+        if (Math.abs(loc.fwd) <= CAR_L / 2 + 2 && Math.abs(loc.lat) <= CAR_W / 2 + 2) return car;
+      }
+      return null;
+    }
     // ── Animation layer — lightweight per-frame sprites over the static buffer.
     // All sprites are stateless functions of Date.now() + _animAnchors; nothing
     // here touches Sim/Car state, so determinism is untouched (same pattern as
