@@ -4148,6 +4148,67 @@
       metrics(inst) { return { "_drawCoop exists": inst.state.exists ? "YES" : "NO" }; },
       verdict(inst) { return inst.state.exists; },
     },
+    // ─── Card BQ: Spatial grid equivalence — grid vs brute neighbor sets ──────
+    {
+      id: "BQ",
+      section: "mixed",
+      family: "guard_green",
+      name: "Spatial grid equivalence — grid and brute-force neighbor sets identical",
+      proof:
+        "Run 3L/20 50/50 for 600 ticks. After every tick, for every non-done car, " +
+        "clear the neighbor cache and compare _relevantLegalNeighborsGrid against " +
+        "_relevantLegalNeighborsBrute at the full 90px query range: sorted id lists " +
+        "must match for BOTH overlapNeighbors and gapNeighbors. The grid is live-updated " +
+        "on every _commitPose, so end-of-tick equality proves it stayed coherent through " +
+        "all mid-tick position changes. Zero mismatches over > 0 checks required.",
+      build() {
+        const kase = standardCase("3L grid-eq", {
+          lanes: 3, cars: 20, split: 50, maxTicks: 600, seed: 901,
+        });
+        const sim = kase.sim;
+        const gridWired =
+          typeof sim._relevantLegalNeighborsGrid === "function" &&
+          typeof sim._relevantLegalNeighborsBrute === "function";
+        let checks = 0, mismatches = 0, firstMismatch = null;
+        if (gridWired) {
+          sim.start();
+          const range = PROJ_BROAD_PHASE + 30;
+          const ids = (arr) => arr.map((o) => o.id).sort((a, b) => a - b).join(",");
+          for (let t = 0; t < 600 && !sim.finished; t++) {
+            sim.tick(1, { v0: V0_DEF });
+            const allActive = sim.cars.filter((c) => !c.done);
+            for (const c of allActive) {
+              c._cachedNeighbors = null;
+              const grid = sim._relevantLegalNeighborsGrid(c, range);
+              c._cachedNeighbors = null;
+              const brute = sim._relevantLegalNeighborsBrute(c, allActive, range);
+              c._cachedNeighbors = null;
+              checks++;
+              const ovG = ids(grid.overlapNeighbors), ovB = ids(brute.overlapNeighbors);
+              const gpG = ids(grid.gapNeighbors), gpB = ids(brute.gapNeighbors);
+              if (ovG !== ovB || gpG !== gpB) {
+                mismatches++;
+                if (!firstMismatch) {
+                  firstMismatch = `t=${t} car=${c.id} ov[${ovG}]vs[${ovB}] gap[${gpG}]vs[${gpB}]`;
+                }
+              }
+            }
+          }
+        }
+        return { cases: [], state: { gridWired, checks, mismatches, firstMismatch } };
+      },
+      metrics(inst) {
+        return {
+          gridWired: inst.state.gridWired ? "YES" : "NO",
+          checks: inst.state.checks,
+          mismatches: inst.state.mismatches,
+          firstMismatch: inst.state.firstMismatch || "none",
+        };
+      },
+      verdict(inst) {
+        return inst.state.gridWired && inst.state.checks > 0 && inst.state.mismatches === 0;
+      },
+    },
   ];
 
   const FAMILY_META = {
