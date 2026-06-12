@@ -90,9 +90,18 @@ Recommended order: (a) first (smallest, most localized), (b) as the principled f
 
 Recommended order: (b) immediately (near-free), then (a) with a grant-release-on-stuck fallback (if a granted car cannot move forward for N ticks, release the grant back to the scheduler instead of wobbling).
 
+## 4.1 Collateral finding — guard cards BA/BC (full `--gate guard` audit)
+
+Running the FULL 32-card guard gate (not just the 4-card S/X/AA/AH set) surfaced two failures, both **pre-dating this session's instrumentation** (verified byte-identical on the pre-session checkout):
+
+- **BA "Mid-merge stuck car enters maneuver": REGRESSED by the COMMIT_DIST=300 calibration.** Pre-calibration it passed (22.45s); post-calibration it fails (85.12s). The calibration session's validation only ran S/X/AA/AH, so this slipped through. Plausible mechanism: with commitUntilFork locking at 300px, mid-merge stuck cars behave differently around the maneuver trigger. **The fix session must triage BA alongside the two user-reported bugs.**
+- **BC "Branch-stuck car enters maneuver": pre-existing red** — fails identically (20.00s) before AND after the calibration. Independent backlog item.
+
+Lesson encoded below: validation now uses the full `--gate guard` (32 cards), not the 4-card subset.
+
 ## 5. Validation matrix for the fix session
 
-- Guards S/X/AA/AH green (times WILL legitimately change — capture a new baseline first, then require byte-stability across fix commits).
+- **Full `--gate guard` (32 cards)** green except the documented pre-existing BC (and BA until triaged) — not just the 4-card S/X/AA/AH subset that let BA slip. Times WILL legitimately change — capture a new baseline first, then require byte-stability across fix commits.
 - **Q green on all 4 seed triples (301/311/321/331)** — over-fixing Bug 1 can kill the paradox, since the paradox depends on yields happening.
 - R complete; H/I not worsened; G byte-identical (1L untouched by both fixes).
 - BS → 0 premature yields; BV → maxYieldIdleTicks < 120; **BT → 0 hybrid ticks on BOTH seeds (307 AND 42)**; BU stays 0. Then flip BS/BT/BU/BV `family: diagnostic → guard_green` (verdicts already written as the guard condition).
