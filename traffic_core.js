@@ -940,11 +940,20 @@
         if (c._dbgYield) {
           const yb = c._dbgYield;
           tm.maxYieldDurationTicks = Math.max(tm.maxYieldDurationTicks, this.ticks - yb.startTick);
-          if (yb.zone.activeBatchId === null) {
+          // Idle = NO zone on this car's path has an active batch. The entry
+          // zone alone is the wrong attribution in multi-zone paths (3L+): the
+          // mode can be sustained by a different zone's batch than the one that
+          // started the episode.
+          let anyRelevantBatch = false;
+          for (const zone of rd.conflictZones) {
+            if (zone.activeBatchId !== null && zone.paths.has(c.pathKey)) { anyRelevantBatch = true; break; }
+          }
+          if (!anyRelevantBatch) {
             yb.idleTicks++; // cumulative (reported in yield_exit)
             // The invariant metric tracks CONSECUTIVE idle: short idle windows
             // between grants are by design (BATCH_HOLD_TICKS spacing); the
-            // pathology is a car waiting a long unbroken stretch on an empty zone.
+            // pathology is a car waiting a long unbroken stretch with no batch
+            // anywhere on its path.
             yb.idleRun = (yb.idleRun || 0) + 1;
             tm.maxYieldIdleTicks = Math.max(tm.maxYieldIdleTicks, yb.idleRun);
           } else {
@@ -1133,7 +1142,12 @@
       }
 
       // Mechanical pre-_assignBatchStates reset — re-overwritten the same tick (silent).
-      for (const c of mains) this._setMode(c, c.commitUntilFork ? 'commit' : 'free', null);
+      // _zdDp tracks the dp of the car's decisive zone assignment this tick
+      // (batch/hold_exit/yield): the NEAREST zone's decision wins, and the
+      // commit/free defaults of other zones never overwrite a decisive mode.
+      // (Previously the LAST zone in the loop won, so a second zone's "nothing
+      // happening here" silently cancelled a real yield — broken in 3L+.)
+      for (const c of mains) { this._setMode(c, c.commitUntilFork ? 'commit' : 'free', null); c._zdDp = Infinity; c._yieldCandCtx = null; }
       for (const zone of rd.conflictZones) this._assignBatchStates(active, zone, rd);
 
       let activeManeuverCount = active.filter(c => c.maneuvering).length;
@@ -1193,6 +1207,10 @@
         if (c.trafficMode !== c._lastTrafficMode) {
           if (c.trafficMode === 'yield') {
             this.yieldEntryCount++;
+            // Episode bookkeeping is created HERE — at the latched, confirmed
+            // entry — so a zone assignment overwritten later in the same tick
+            // can never leave a ghost episode behind.
+            if (!c._dbgYield && c._yieldCandCtx) c._dbgYield = this._mkYieldEntry(c, c._yieldCandCtx.zone, c._yieldCandCtx.dp);
             const yb = c._dbgYield;
             this._event('yield_enter', yb
               ? { carId: c.id, dp: Math.round(yb.dpAtEntry), etaOwn: +yb.etaOwn.toFixed(1), batchEta: +yb.batchEta.toFixed(1), premature: yb.premature }
@@ -1918,6 +1936,9 @@
       }
     }
 
+    // Per-zone state assignment with nearest-zone precedence: decisive modes
+    // (batch / hold_exit / yield) from the zone CLOSEST ahead of the car win;
+    // commit/free defaults from other zones never overwrite a decisive mode.
     _assignBatchStates(activeCars, zone, rd) {
       for (const c of activeCars) {
         if (c.seg !== 'main' || c.done) continue;
@@ -1927,31 +1948,39 @@
         const nearFork = dp >= 0 && dp <= BATCH_APPROACH_DIST;
         const isBatchMember = zone.batchMembers.includes(c.id);
         const targetClear = zone.downstreamClearanceByTarget[c.target];
-        c.batchId = isBatchMember ? zone.activeBatchId : null;
-        c.batchTarget = isBatchMember ? zone.activeBatchTarget : '';
+        const decide = (mode, reason, yielding, extra) => {
+          if (dp >= c._zdDp) return; // a nearer zone already decided
+          c._zdDp = dp;
+          if (isBatchMember) { c.batchId = zone.activeBatchId; c.batchTarget = zone.activeBatchTarget; }
+          else { c.batchId = null; c.batchTarget = ''; }
+          this._setMode(c, mode, reason, extra);
+          c.zoneYielding = yielding;
+        };
         if (!zone.schedulerEnabled) {
-          this._setMode(c, c.commitUntilFork ? 'commit' : 'free', 'scheduler_off');
-          c.zoneYielding = false;
+          if (c._zdDp === Infinity) {
+            this._setMode(c, c.commitUntilFork ? 'commit' : 'free', 'scheduler_off');
+            c.zoneYielding = false;
+          }
           continue;
         }
         if (isBatchMember) {
-          this._setMode(c, 'batch', 'batch_grant'); c.zoneYielding = false;
+          decide('batch', 'batch_grant', false);
         } else if (nearFork && this._canTrailActiveBatch(c, zone, activeCars)) {
-          this._setMode(c, 'commit', 'trail_batch'); c.zoneYielding = false;
+          if (c._zdDp === Infinity) { this._setMode(c, 'commit', 'trail_batch'); c.zoneYielding = false; }
         } else if (nearFork && targetClear < EXIT_CLEARANCE) {
-          this._setMode(c, 'hold_exit', 'exit_clearance'); c.zoneYielding = true;
+          decide('hold_exit', 'exit_clearance', true);
         } else if (dp >= 0 && dp <= YIELD_NEAR_DIST && zone.activeBatchId !== null
             && c.target !== zone.activeBatchTarget && this._shouldYield(c, zone, dp)) {
           // Bug-1 fix: yield horizon decoupled from BATCH_APPROACH_DIST (380px →
           // YIELD_NEAR_DIST) and gated on an actual ETA conflict (_shouldYield;
-          // ongoing episodes persist via _dbgYield hysteresis).
-          if (!c._dbgYield) c._dbgYield = this._mkYieldEntry(c, zone, dp);
-          this._setMode(c, 'yield', 'opposite_target_batch', { etaOwn: +c._dbgYield.etaOwn.toFixed(1), batchEta: +c._dbgYield.batchEta.toFixed(1) });
-          c.zoneYielding = true;
-        } else if (c.commitUntilFork) {
-          this._setMode(c, 'commit', 'commit_until_fork'); c.zoneYielding = false;
-        } else {
-          this._setMode(c, 'free', 'zone_free'); c.zoneYielding = false;
+          // ongoing episodes persist via _dbgYield hysteresis). Episode
+          // bookkeeping is created at the LATCH (confirmed entries only) from
+          // the context stored here.
+          if (dp < c._zdDp) c._yieldCandCtx = { zone, dp };
+          decide('yield', 'opposite_target_batch', true);
+        } else if (c._zdDp === Infinity) {
+          if (c.commitUntilFork) { this._setMode(c, 'commit', 'commit_until_fork'); c.zoneYielding = false; }
+          else { this._setMode(c, 'free', 'zone_free'); c.zoneYielding = false; }
         }
       }
     }
