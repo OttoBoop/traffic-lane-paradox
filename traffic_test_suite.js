@@ -4247,7 +4247,7 @@
     {
       id: "BS",
       section: "mixed",
-      family: "diagnostic",
+      family: "guard_green",
       name: "Premature yield — own ETA vs active batch's remaining transit",
       proof:
         "Q-style 2L (seed 302) and 3L (seed 303) 10-car 50/50 races. A yield entry " +
@@ -4285,7 +4285,7 @@
     {
       id: "BT",
       section: "mixed",
-      family: "diagnostic",
+      family: "guard_green",
       name: "Batch∧maneuver hybrid — granted cars must not wobble (esp. reverse in zone)",
       proof:
         "3L/40 50/50, seeds 307 + 42. The hybrid state is strongly seed-dependent: " +
@@ -4328,7 +4328,7 @@
     {
       id: "BU",
       section: "mixed",
-      family: "diagnostic",
+      family: "guard_green",
       name: "Granted-crossing safety — aggressive steer and near-misses inside the zone",
       proof:
         "3L/40 seed 307 + 2L/10 seed 302. Counts (1) ticks where a granted car inside " +
@@ -4363,7 +4363,7 @@
     {
       id: "BV",
       section: "mixed",
-      family: "diagnostic",
+      family: "guard_green",
       name: "Yield duration — bounded episodes, no waiting on an idle zone",
       proof:
         "3L/12 seed 307 (light) and 3L/40 seed 307 (dense, 3000t cap). Tracks yield " +

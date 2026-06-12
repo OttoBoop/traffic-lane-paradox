@@ -64,9 +64,15 @@ Scenic themes are drawn to an offscreen buffer once per load/resize/theme-switch
 - Guard suite green: S (2.67s), X (24.68s), AA (5.33s), AH (41.85s) all pass (times reflect the COMMIT_DIST=300 calibration).
 - Braess paradox demonstrated: card Q green — 1L strictly fastest at 50/50 across 4 seed triples.
 
-### The Paradox Works
+### The Paradox Works — and the traffic logic is honest now
 
-As of 2026-06-10, **card Q is green**: at 50/50 demand, 1 lane completes in 10.00s while 2 lanes take 15.95s and 3 lanes 12.53s — adding lanes makes everyone slower, as the model intends. The calibration that unlocked it was `COMMIT_DIST` 90→300: with early lane commitment, wrong-lane cars must genuinely cross at the fork instead of pre-sorting via MOBIL demand balancing (which had been dissolving the conflict entirely — the batch scheduler used to engage exactly once per run). Full analysis in `v18_plan.md` §0.2.
+**Card Q is green on all four seed triples** (2026-06-12): at 50/50 demand, 1 lane completes in 10.00s while 2/3 lanes take 13.28/14.22s (and up to 57s on unlucky seeds) — adding lanes makes everyone slower, as the model intends. Two rounds got it there: `COMMIT_DIST` 90→300 created real crossings (`v18_plan.md` §0.2), and the yield/maneuver correctness round fixed three behavior bugs while keeping the paradox calibrated (`docs/DISCOVERY_Yield_Maneuver_Correctness.md`):
+
+- **Premature yields** (83–100% of yields!) — fixed by an ETA gate: a yield episode starts only on an actual arrival-time conflict with the active batch.
+- **Granted cars reverse-wobbling at max steer** (up to 572 hybrid ticks + 92 overlaps on unlucky seeds) — fixed by wobble×grant mutual exclusion, a cascade guard, planner-level reverse exclusion, and a grant stall-release watchdog.
+- **Multi-zone assignment overwrite** (a second zone's "all clear" cancelled a real yield on 3L+ paths) — fixed with nearest-zone precedence.
+
+Permanent regression net: guard cards **BS/BT/BU/BV** (premature yield, batch∧maneuver hybrid, granted-crossing safety, yield idle) plus a flight recorder (`sim.debugTrace`), CLI timeline/repro tools (`trace_traffic_events.js`, `extract_repro.js`) and a browser debug overlay (`index.html?debug=1` or press `d`).
 
 ### Known Rough Edges
 
@@ -120,15 +126,17 @@ node run_traffic_suite.js --id S --id X --id AA --id AH
 
 ## Known Issues and Future Work
 
-**Promote card Q to guard.** Q (paradox race) is `survey_green` since the COMMIT_DIST=300 calibration; promote to `guard_green` once it has survived a few more sessions.
+**Card BC — branch-stuck cars never maneuver.** Pre-existing red (pre-dates the calibration): the maneuver system only operates on the main segment, so a car stuck on a branch (card BC's scenario) waits forever. Needs branch-segment maneuver support or a scoped fix.
+
+**Promote card Q to guard.** Q (paradox race) is `survey_green`; promote to `guard_green` once it has survived a few more sessions (it now holds on 4/4 seed triples).
 
 **Test classification.** A systematic RED→GREEN pass over all cards is needed: run each card failing first, implement or fix, confirm green. Group cards into `guard_green` / `known_red` / `diagnostic` with confidence.
 
 **Two-phase tick architecture.** Replace sequential commit (high-priority cars monopolize conflict resolution) with parallel intent + conflict resolution. Design notes in PLAN_Maneuver_Conflict_Overhaul §Feature 8; needs its own discovery before implementation.
 
-**Other deferred items** (tracked in IDEAS docs): desert theme, full A–Y RED→GREEN test overhaul, overlap-prevention pipeline simplification, browser visual overlap debugger, maneuver candidate count reduction.
+**Other deferred items** (tracked in IDEAS docs): desert theme, full A–Y RED→GREEN test overhaul, overlap-prevention pipeline simplification, maneuver candidate count reduction.
 
-*(Resolved since the last revision: maneuver entry/exit bugs — Features 1–2 of PLAN_Maneuver_Conflict_Overhaul; the O(N²) framerate collapse — performance waves P1–P5 + car sleep, −78% wall time at 80 cars; spatial hash broad-phase — card BQ; the paradox calibration — card Q green via COMMIT_DIST=300; night/snow themes, animated scene layer, hover tooltip, animated mode transitions, sheep + parked cars — card BR.)*
+*(Resolved since the last revision: maneuver entry/exit bugs — Features 1–2 of PLAN_Maneuver_Conflict_Overhaul; the O(N²) framerate collapse — performance waves P1–P5 + car sleep, −78% wall time at 80 cars; spatial hash broad-phase — card BQ; the paradox calibration — card Q green via COMMIT_DIST=300; night/snow themes, animated scene layer, hover tooltip, animated mode transitions, sheep + parked cars — card BR; premature yields, dangerous granted maneuvers, multi-zone assignment overwrite and the BA merge-completion regression — cards BS–BV + DISCOVERY_Yield_Maneuver_Correctness, −6.9% wall time as a side effect; the browser debug overlay shipped as `?debug=1`.)*
 
 ---
 

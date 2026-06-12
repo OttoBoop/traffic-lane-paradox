@@ -1,7 +1,7 @@
 # DISCOVERY — Yield & Maneuver Correctness
 
 **Generated:** 2026-06-12
-**Status:** Diagnosis complete — fixes NOT implemented (by design; pending user review)
+**Status:** FIXED (2026-06-12, same day — user green-lit the fix round; see §6 for the implemented package and final numbers)
 **Instrumentation:** flight recorder (`_setMode` + `debugTrace` ring), always-on invariant detectors, CLI tools (`trace_traffic_events.js`, `extract_repro.js`), diagnostic cards BS/BT/BU/BV, browser overlay (`?debug=1` / `d`)
 
 ---
@@ -108,7 +108,32 @@ Lesson encoded below: validation now uses the full `--gate guard` (32 cards), no
 - Re-run the seed hunt (`/tmp`-style sweep over seeds 307–310, 42 with dt=1/spikes/chaos) — zero hybrid ticks and zero overlaps expected everywhere.
 - Browser check with `?debug=1`: no red maneuver arrows on granted cars; yield lines only near the zone.
 
-## 6. Instrumentation inventory (shipped this session)
+## 6. FIX ROUND (2026-06-12, follow-up session) — implemented package & results
+
+User mandate: fix both bugs at my discretion, hard constraint = paradox stays demonstrable; prioritize paradox quality, then performance; triage BA.
+
+### Implemented
+- **Bug 1**: `YIELD_NEAR_DIST` decoupled (independent dial) + **ETA gate** `_shouldYield` (new episode only if `dp ≤ 2·CAR_L` or `etaOwn ≤ batchEta × YIELD_ETA_FACTOR`; hysteresis keeps ongoing episodes). Gate and detector share `_yieldEtas` — premature count is zero **by construction** and the BS card guards the gate.
+- **Bug 2** (4 layers): cascade never recruits granted cars; granted cars never wobble-reverse (forward-only creep); planner emits no reverse candidates for granted cars; granted cars exit maneuver immediately (F2-T4 `pathClear` precondition dropped — safe now). Plus **`GRANT_STALL_RELEASE`=120**: a batch whose members all stalled releases the zone (liveness).
+- **Bug 3 — found DURING the fix round by the BV idle detector: multi-zone overwrite.** `_assignBatchStates`'s per-zone loop let the LAST zone on a car's path win, so a second zone's commit/free default silently cancelled a real yield/hold_exit (3L+). Fixed with **nearest-zone precedence** (decisive modes win by smallest dp; defaults never overwrite); `batchId`/`batchTarget` follow the same rule; yield episode bookkeeping moved to the latch (ghost episodes impossible).
+- **BA root fix**: merges now COMPLETE when the car reaches the new lane center (`merging` was only cleared at branch entry; with COMMIT_DIST=300 cars carried the flag for hundreds of px and the stall→maneuver path never fired). BA passes (max stall 2 frames vs threshold 10; was 12+ and 85s).
+
+### Calibration history (paradox constraint)
+| YIELD_NEAR_DIST | Q seed triples | note |
+|---|---|---|
+| 170 | red (3L 9.17 < 1L) | over-fixed: too little crossing cost |
+| 260 / 300 | 3/4 · 2/4 | chaotic sensitivity |
+| 340 (pre-precedence-fix) | 4/4 (worst +0.8%) | committed, then precedence fix changed dynamics |
+| **380 (final)** | **4/4** — 13.28/12.42/11.97/10.13 vs 10.00 | horizon = BATCH_APPROACH again, but the ETA gate (not the horizon) is the premature-yield fix |
+
+### Final numbers
+- **Q 4/4 triples** (301/311/321/331); R pass; **G/H/I byte-identical** (10.00/7.40/6.57 — same-target provably untouched, ~5 independent confirmations).
+- **All four invariants zero across the seed hunt** (307–310, 42, dt spikes): hybrid ticks 572→0, overlaps 92→0, premature yields 0, consecutive idle-yield 181→0; s310's 9 permanent DNFs resolved.
+- **BS/BT/BU/BV all green → flipped `diagnostic` → `guard_green`** (permanent regression net).
+- **Performance** (same hardware A/B, 3L/40×400t): 9502 → 8845 ms (**−6.9%**) — honest yielding costs less than wasted reverse-wobble.
+- BC remains the documented pre-existing red (branch-segment maneuver — separate backlog).
+
+## 7. Instrumentation inventory (shipped in the diagnosis session)
 
 - **Flight recorder**: `_setMode(c, mode, reason, extra)` choke point (18 sites converted); `mode_change` events with car snapshots in a `traceEvents` ring (cap 20k, `debugTrace`-gated, default off); `wobble_phase` trace; yield episode bookkeeping (`yield_enter` enriched, new `yield_exit` with duration/idle/sawBatch); additive `maneuver_enter/exit` fields (dp, blocker, npt, exit reason).
 - **Always-on detectors** (read-only, byte-identical-verified, AH overhead +1.9%): `prematureYieldCount/Log` (ETA test, K=1.5, dp>2·CAR_L floor — over-reports for stalled cars by design), `batchManeuverTickCount/ReverseInZoneCount/Log`, `zoneAggressiveSteerCount/Log` (|steer|>0.25 granted-in-zone), `grantedNearMissCount/Log` (<33px), `yieldExitCount/yieldDurations/maxYieldDurationTicks/maxYieldIdleTicks`.
