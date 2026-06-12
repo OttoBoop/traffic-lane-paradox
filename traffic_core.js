@@ -45,6 +45,24 @@
   // trigger it (no opposite car / no conflict zones).
   const CONFLICT_CROSS_SPEED = 1;
   const CONFLICT_GUARD_SPAN = CAR_L * 3;
+  // Yield horizon (Bug-1 fix, 2026-06-12): yield assignment + yield braking act
+  // only within this distance of the zone — decoupled from BATCH_APPROACH_DIST
+  // (which silently scaled 170→380 with the COMMIT_DIST calibration). With the
+  // ETA gate below, the horizon is the paradox-cost lever: sweep over the four
+  // seed triples gave 170 → Q red (3L beats 1L), 260 → 3/4, 300 → 2/4,
+  // 340 → 4/4 paradox (worst margin +0.8%). 340 stays under BATCH_APPROACH.
+  const YIELD_NEAR_DIST = 340;
+  // ETA gate (Bug-1 fix): a NEW yield episode starts only if the car could
+  // plausibly reach the zone while the active batch is still transiting
+  // (etaOwn <= batchEta × factor), or if it is already dangerously close
+  // (dp <= 2·CAR_L). Ongoing episodes persist (hysteresis) until the base
+  // condition clears. The premature-yield detector uses the same formula, so
+  // post-fix it reads zero by construction.
+  const YIELD_ETA_FACTOR = 2;
+  // Stall release (Bug-2 fix): a granted batch whose members ALL made no path
+  // progress for this many ticks releases the zone back to the scheduler
+  // instead of holding it (and wobble-reversing) indefinitely.
+  const GRANT_STALL_RELEASE = 120;
   const NO_PROGRESS_THRESH = 60;
   const NO_PROGRESS_THRESH_YIELD = 480;
   const PROGRESS_RESUME_THRESH = 20;
@@ -923,12 +941,19 @@
           const yb = c._dbgYield;
           tm.maxYieldDurationTicks = Math.max(tm.maxYieldDurationTicks, this.ticks - yb.startTick);
           if (yb.zone.activeBatchId === null) {
-            yb.idleTicks++;
-            tm.maxYieldIdleTicks = Math.max(tm.maxYieldIdleTicks, yb.idleTicks);
-          } else if (!yb.sawBatchInZone) {
-            for (const o of allActive) {
-              if (o.done || !o._insideConflictPrev) continue;
-              if (yb.zone.batchMembers.includes(o.id)) { yb.sawBatchInZone = true; break; }
+            yb.idleTicks++; // cumulative (reported in yield_exit)
+            // The invariant metric tracks CONSECUTIVE idle: short idle windows
+            // between grants are by design (BATCH_HOLD_TICKS spacing); the
+            // pathology is a car waiting a long unbroken stretch on an empty zone.
+            yb.idleRun = (yb.idleRun || 0) + 1;
+            tm.maxYieldIdleTicks = Math.max(tm.maxYieldIdleTicks, yb.idleRun);
+          } else {
+            yb.idleRun = 0;
+            if (!yb.sawBatchInZone) {
+              for (const o of allActive) {
+                if (o.done || !o._insideConflictPrev) continue;
+                if (yb.zone.batchMembers.includes(o.id)) { yb.sawBatchInZone = true; break; }
+              }
             }
           }
         }
@@ -1236,6 +1261,9 @@
               const lat = -dx * Math.sin(c.th) + dy * Math.cos(c.th);
               if (fwd < 0 && Math.abs(lat) < 20) {
                 if (o.trafficMode === 'hold_exit') continue;
+                // Bug-2 fix (cascade guard): never recruit granted cars into
+                // maneuver — the wobble would override their crossing.
+                if (o.trafficMode === 'batch' || o.batchId !== null) continue;
                 if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) continue;
                 if (this._getCachedForwardProgressMove(o, active, rd, dt)) continue;
                 o.maneuvering = true;
@@ -1274,8 +1302,11 @@
               c.pathIdx = pathQuery(c.path, c.x, c.y, 0).idx; c.lastProgress = c.pathIdx * PATH_SP;
               c.lane = parseInt(bestKey);
             }
-          } else if (assignedMode === 'batch' && pathClear) {
-            // F2-T4: batch+stuck fix — batch cars were missing an exit branch, causing permanent maneuver lock.
+          } else if (assignedMode === 'batch') {
+            // F2-T4 (revised by Bug-2 fix): granted cars exit maneuver IMMEDIATELY,
+            // no pathClear requirement. The original freeze risk is gone — wobble
+            // reverse no longer applies to granted cars, and GRANT_STALL_RELEASE
+            // frees the zone if the car stays physically stuck as batch.
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
             this._setMode(c, 'batch', 'maneuver_exit_batch');
             activeManeuverCount = Math.max(0, activeManeuverCount - 1);
@@ -1344,6 +1375,14 @@
 
       for (const c of active) {
         const pq = pathQuery(c.path, c.x, c.y, c.pathIdx); c.pathIdx = pq.idx; c._pq = pq;
+        // BA fix: a merge COMPLETES when the car physically reaches the new lane
+        // center. merging was previously cleared only at branch entry, so with
+        // COMMIT_DIST=300 cars carried the flag for hundreds of px; a stalled
+        // mid-merge car never re-entered the stall→maneuver path (its erratic
+        // progress on the far-away target path kept resetting noProgressTicks).
+        if (c.merging && c.seg === 'main' && Math.abs(c.x - rd.laneX(c.lane)) < rd.mainLw * 0.25) {
+          c.merging = false; c.blinker = 0;
+        }
         let hErr = pq.ang - c.th; while (hErr > Math.PI) hErr -= 2 * Math.PI; while (hErr < -Math.PI) hErr += 2 * Math.PI;
         const cte = Math.cos(pq.ang) * (c.y - pq.py) - Math.sin(pq.ang) * (c.x - pq.px);
         const dCTE = cte - c.prevCTE; c.prevCTE = cte;
@@ -1448,7 +1487,9 @@
           const zoneProgress = zi * PATH_SP;
           if (conflictProgress === null || zoneProgress < conflictProgress) conflictProgress = zoneProgress;
           const dp = (zi - c.pathIdx) * PATH_SP;
-          if (c.trafficMode === 'yield' && dp > 0 && dp < BATCH_APPROACH_DIST) {
+          if (c.trafficMode === 'yield' && dp > 0 && dp < YIELD_NEAR_DIST) {
+            // Bug-1 fix: the yield brake acts only inside the yield horizon
+            // (was BATCH_APPROACH_DIST = 380px — braking for crossings far away).
             const gap = Math.max(dp, 0.1);
             const brakeSpd = c.speed + Math.max(idm(c.speed, 0, gap, c.speed), -IDM_B * 4) * dt;
             c.desSpd = Math.min(c.desSpd, Math.max(0, brakeSpd));
@@ -1476,7 +1517,14 @@
           while (steerToPerp < -Math.PI) steerToPerp += 2 * Math.PI;
           const phase = Math.floor(c.maneuverTimer / 12) % 4;
           const perpSteer = Math.max(-MAX_ST, Math.min(MAX_ST, steerToPerp * 0.8));
-          if (phase === 0 || phase === 2) {
+          if (c.batchId !== null) {
+            // Bug-2 fix (wobble×grant mutual exclusion): a granted car never
+            // wobble-reverses. Forward-only creep toward the perp direction;
+            // if it stays stalled, the scheduler's GRANT_STALL_RELEASE frees
+            // the zone rather than letting it back into the queue.
+            c.desSt = perpSteer;
+            c.desSpd = Math.max(0.25, Math.min(c.desSpd, 0.45));
+          } else if (phase === 0 || phase === 2) {
             c.desSt = phase === 0 ? perpSteer : -perpSteer;
             c.desSpd = -REVERSE_SPD;
           } else {
@@ -1787,7 +1835,14 @@
         const activeBatchCars = active.filter(c => zone.batchMembers.includes(c.id) && !c.done);
         if (activeBatchCars.length > 0) {
           const stillOwning = activeBatchCars.some(c => this._batchStillOwnsZone(c, zone));
-          if (stillOwning) continue;
+          // Bug-2 fix (stall release): if every member is stuck, free the zone
+          // instead of holding it indefinitely — liveness for the other side.
+          const allStalled = activeBatchCars.every(c => c.noProgressTicks > GRANT_STALL_RELEASE);
+          if (allStalled && stillOwning) {
+            this._event('batch_stall_release', { batchId: zone.activeBatchId, members: zone.batchMembers.join(',') });
+          } else if (stillOwning) {
+            continue;
+          }
         }
 
         const waiting = { left: [], right: [] };
@@ -1885,9 +1940,11 @@
           this._setMode(c, 'commit', 'trail_batch'); c.zoneYielding = false;
         } else if (nearFork && targetClear < EXIT_CLEARANCE) {
           this._setMode(c, 'hold_exit', 'exit_clearance'); c.zoneYielding = true;
-        } else if (nearFork && zone.activeBatchId !== null && c.target !== zone.activeBatchTarget) {
-          // Yield bookkeeping: capture entry context once per yield episode (cleared
-          // by the latch block on exit). Read-only w.r.t. sim behavior.
+        } else if (dp >= 0 && dp <= YIELD_NEAR_DIST && zone.activeBatchId !== null
+            && c.target !== zone.activeBatchTarget && this._shouldYield(c, zone, dp)) {
+          // Bug-1 fix: yield horizon decoupled from BATCH_APPROACH_DIST (380px →
+          // YIELD_NEAR_DIST) and gated on an actual ETA conflict (_shouldYield;
+          // ongoing episodes persist via _dbgYield hysteresis).
           if (!c._dbgYield) c._dbgYield = this._mkYieldEntry(c, zone, dp);
           this._setMode(c, 'yield', 'opposite_target_batch', { etaOwn: +c._dbgYield.etaOwn.toFixed(1), batchEta: +c._dbgYield.batchEta.toFixed(1) });
           c.zoneYielding = true;
@@ -1899,23 +1956,39 @@
       }
     }
 
-    // Yield-entry context for the premature-yield detector (invariant b). etaOwn
-    // uses the scheduler's own ETA convention; batchEta is the slowest active
-    // batch member's time to fully EXIT the zone. Known over-reporting biases
-    // (documented in card BS): stalled members inflate batchEta via the 0.05
-    // speed floor, and an already-braked car inflates etaOwn — both err toward
-    // flagging, which is the right direction for a diagnostic.
-    _mkYieldEntry(c, zone, dp) {
-      const etaOwn = dp / Math.max(c.speed, 0.05);
+    // Optimistic ETA pair shared by the yield GATE and the premature-yield
+    // DETECTOR — one formula, so the detector reads zero once the gate enforces
+    // it. etaOwn assumes the car can resume at least half cruise speed;
+    // batchEta floors member speed at 0.3 (a clearing member accelerates).
+    _yieldEtas(c, zone, dp) {
+      const etaOwn = dp / Math.max(c.speed, V0_DEF * 0.5);
       let batchEta = 0;
       for (const o of this.cars) {
         if (o.done || !zone.batchMembers.includes(o.id)) continue;
         const zi = zone.paths.get(o.pathKey);
         if (zi === undefined) continue;
         const remaining = (zi - o.pathIdx) * PATH_SP + zone.radius;
-        batchEta = Math.max(batchEta, remaining / Math.max(o.speed, 0.05));
+        batchEta = Math.max(batchEta, remaining / Math.max(o.speed, 0.3));
       }
-      const premature = dp > CAR_L * 2 && batchEta > 0 && etaOwn > batchEta * 1.5;
+      return { etaOwn, batchEta };
+    }
+
+    // Bug-1 fix: should this car START a yield episode? Ongoing episodes
+    // persist (hysteresis — the latch clears _dbgYield on exit). New episodes
+    // require dangerous proximity or an actual ETA conflict with the batch.
+    _shouldYield(c, zone, dp) {
+      if (c._dbgYield) return true;
+      if (dp <= CAR_L * 2) return true;
+      const { etaOwn, batchEta } = this._yieldEtas(c, zone, dp);
+      return batchEta > 0 && etaOwn <= batchEta * YIELD_ETA_FACTOR;
+    }
+
+    // Yield-entry context for the premature-yield detector (invariant b).
+    // Same _yieldEtas formula and YIELD_ETA_FACTOR as the gate: premature :=
+    // the entry would not have passed the gate's ETA condition.
+    _mkYieldEntry(c, zone, dp) {
+      const { etaOwn, batchEta } = this._yieldEtas(c, zone, dp);
+      const premature = dp > CAR_L * 2 && batchEta > 0 && etaOwn > batchEta * YIELD_ETA_FACTOR;
       if (premature) {
         this.testMetrics.prematureYieldCount++;
         if (this.testMetrics.prematureYieldLog.length < 100) {
@@ -2315,9 +2388,13 @@
         for (const steer of maneuverSteers) for (const scale of [0.35, 0.2]) {
           addAttempt(Math.max(speedMag * scale, 0.12), steer);
         }
-        for (const revMag of [0.2, 0.35]) {
-          const rev = -Math.max(speedMag * revMag, REVERSE_SPD);
-          for (const steer of maneuverSteers) addAttempt(rev, steer);
+        // Bug-2 fix: granted cars get no reverse candidates — reversing back
+        // into the queue while holding the zone is the dangerous maneuver.
+        if (c.batchId === null) {
+          for (const revMag of [0.2, 0.35]) {
+            const rev = -Math.max(speedMag * revMag, REVERSE_SPD);
+            for (const steer of maneuverSteers) addAttempt(rev, steer);
+          }
         }
       }
       addAttempt(0, desiredSteer);

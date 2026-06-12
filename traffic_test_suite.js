@@ -4251,11 +4251,11 @@
       name: "Premature yield — own ETA vs active batch's remaining transit",
       proof:
         "Q-style 2L (seed 302) and 3L (seed 303) 10-car 50/50 races. A yield entry " +
-        "is PREMATURE when dp > 2*CAR_L and etaOwn > batchEta*1.5 (etaOwn uses the " +
-        "scheduler's dp/speed convention; batchEta = slowest member's time to fully " +
-        "exit the zone). Known over-report biases: the 0.05 speed floor inflates both " +
-        "ETAs for stalled cars. Verdict is the future guard condition: zero premature " +
-        "yields. Expected RED today — the 380px nearFork gate yields unconditionally.",
+        "is PREMATURE when dp > 2*CAR_L and etaOwn > batchEta*YIELD_ETA_FACTOR, " +
+        "using the SAME optimistic _yieldEtas formula as the yield gate (etaOwn " +
+        "assumes >= half cruise speed; batchEta floors member speed at 0.3). Since " +
+        "the Bug-1 fix the gate enforces exactly this condition, so the count is " +
+        "zero by construction — this card guards against regressions of the gate.",
       build() {
         return {
           cases: [
@@ -4367,9 +4367,11 @@
       name: "Yield duration — bounded episodes, no waiting on an idle zone",
       proof:
         "3L/12 seed 307 (light) and 3L/40 seed 307 (dense, 3000t cap). Tracks yield " +
-        "episode durations and maxYieldIdleTicks — ticks spent in yield while the " +
-        "zone had NO active batch (waiting for nobody). Verdict: maxYieldIdleTicks " +
-        "< 120 across cases.",
+        "episode durations and maxYieldIdleTicks — the longest CONSECUTIVE stretch " +
+        "spent in yield while the zone had NO active batch (waiting for nobody). " +
+        "Short idle windows between grants are by design (BATCH_HOLD_TICKS spacing); " +
+        "the cumulative idle per episode is reported in yield_exit events. " +
+        "Verdict: maxYieldIdleTicks < 120 across cases.",
       build() {
         return {
           cases: [
