@@ -620,6 +620,10 @@
       this.maneuverTriggerCount = 0; this.commitOscillationCount = 0; this.plannerIllegalCount = 0;
       this.fastPathHits = 0; this.fastPathMisses = 0; this.nominalFastPathHits = 0; this.trafficFastPathHits = 0;
       this.yieldEntryCount = 0; this.holdExitEntryCount = 0; this.batchEntryCount = 0;
+      // Flight recorder: high-volume trace ring (separate from testEvents so the
+      // 500-cap event stream that cards consume is never flooded). Off by default;
+      // diagnostic CLIs flip debugTrace before running. Survives init() (set here only).
+      this.debugTrace = false; this.traceCap = 20000;
       this._initTestState();
     }
     init(w, h) {
@@ -734,13 +738,60 @@
         nearMissLog: [],
         overlapEventLog: [],
         marginOverlapCount: 0,
-        hardOverlapCount: 0
+        hardOverlapCount: 0,
+        // Invariant detectors (always-on, read-only) — see _invariantDetectors
+        batchManeuverTickCount: 0,
+        batchManeuverReverseInZoneCount: 0,
+        batchManeuverLog: [],
+        prematureYieldCount: 0,
+        prematureYieldLog: [],
+        zoneAggressiveSteerCount: 0,
+        zoneAggressiveSteerLog: [],
+        grantedNearMissCount: 0,
+        grantedNearMissLog: [],
+        yieldExitCount: 0,
+        maxYieldDurationTicks: 0,
+        maxYieldIdleTicks: 0,
+        yieldDurations: []
       };
+      this.traceEvents = [];
+      this.traceDroppedCount = 0;
     }
 
     _event(type, data) {
       if (this.testEvents.length >= 500) this.testEvents.shift();
       this.testEvents.push({ tick: this.ticks, type, ...data });
+    }
+
+    // High-volume trace channel (mode transitions, wobble phases). No-op unless
+    // sim.debugTrace is set; writes only to traceEvents — never to testEvents.
+    _trace(type, data) {
+      if (!this.debugTrace) return;
+      if (this.traceEvents.length >= this.traceCap) { this.traceEvents.shift(); this.traceDroppedCount++; }
+      this.traceEvents.push({ tick: this.ticks, type, ...data });
+    }
+
+    // Single choke point for trafficMode transitions. reason === null marks the
+    // mechanical pre-_assignBatchStates reset (re-overwritten the same tick) and
+    // is intentionally silent. Companion flags (zoneYielding, maneuvering, ...)
+    // remain at the call sites — this only owns the mode write + the trace.
+    _setMode(c, mode, reason, extra) {
+      const prev = c.trafficMode;
+      if (prev === mode) return;
+      c.trafficMode = mode;
+      if (reason === null) return;
+      // Continuation dedup: the per-tick reset at the top of the mains loop wipes
+      // the mode (silently) and _assignBatchStates restores it. If the restored
+      // mode equals last tick's latched end-of-tick mode, it is a continuation,
+      // not a transition — skip the trace.
+      if (c._lastTrafficMode === mode) return;
+      this._trace('mode_change', {
+        carId: c.id, prev, next: mode, reason,
+        x: +c.x.toFixed(1), y: +c.y.toFixed(1), speed: +c.speed.toFixed(2),
+        dp: c._dbgDp === undefined || c._dbgDp === null ? null : Math.round(c._dbgDp),
+        batchId: c.batchId, npt: Math.round(c.noProgressTicks || 0),
+        blockerId: c.primaryBlockerId ?? null, ...(extra || {})
+      });
     }
 
     _syncTestMetrics() {
@@ -869,7 +920,7 @@
         c.stuckTicks = c.noProgressTicks;
         c.batchId = null; c.batchTarget = ''; c.primaryBlockerId = null;
         c.prioritySignal = false; c.zoneYielding = false;
-        c.blockingKind = 'none'; c.plannerMode = 'nominal'; c.trafficMode = 'free';
+        c.blockingKind = 'none'; c.plannerMode = 'nominal'; this._setMode(c, 'free', 'sleep_reset');
         let best = 0, bd = 1e9;
         for (let i = 0; i < this.nL; i++) { const d = Math.abs(c.x - rd.laneX(i)); if (d < bd) { bd = d; best = i; } }
         c.lane = best; c.lastProgress = c._progress;
@@ -974,7 +1025,7 @@
           this.testMetrics.maxLaneCenterDrift = Math.max(this.testMetrics.maxLaneCenterDrift, Math.abs(c.x - rd.laneX(c.lane)));
           this.testMetrics.maxYawDrift = Math.max(this.testMetrics.maxYawDrift, Math.abs(c.th - (-Math.PI / 2)));
         } else {
-          c.commitUntilFork = false; c.noProgressTicks = 0; c.progressResumeTicks = 0; c.trafficMode = 'free';
+          c.commitUntilFork = false; c.noProgressTicks = 0; c.progressResumeTicks = 0; this._setMode(c, 'free', 'branch_reset');
           c.maneuvering = false; c.spillbackTicks = 0; c.spillbackFlag = false;
         }
         c.lastProgress = progress;
@@ -994,7 +1045,8 @@
         }
       }
 
-      for (const c of mains) c.trafficMode = c.commitUntilFork ? 'commit' : 'free';
+      // Mechanical pre-_assignBatchStates reset — re-overwritten the same tick (silent).
+      for (const c of mains) this._setMode(c, c.commitUntilFork ? 'commit' : 'free', null);
       for (const zone of rd.conflictZones) this._assignBatchStates(active, zone, rd);
 
       let activeManeuverCount = active.filter(c => c.maneuvering).length;
@@ -1020,6 +1072,7 @@
           const dp = (zi - c.pathIdx) * PATH_SP;
           if (dp >= 0 && dp < dpToNearestZone) dpToNearestZone = dp;
         }
+        c._dbgDp = dpToNearestZone === 1e9 ? null : dpToNearestZone; // instrumentation-only side field
         // Fix 3: Yield cars far from conflict zone use nominal planner (cheap IDM follow)
         const yieldNeedsFullPlanner = c.trafficMode === 'yield' && dpToNearestZone <= YIELD_FULL_PLANNER_DIST;
         c.plannerMode = (blockInfo.kind === 'conflict' || blockInfo.kind === 'wall' || hardFollowBlock || c.maneuvering || c.merging || yieldNeedsFullPlanner || c.trafficMode === 'hold_exit' || c.trafficMode === 'batch') ? 'traffic' : 'nominal';
@@ -1051,9 +1104,30 @@
         else c.progressResumeTicks = 0;
 
         if (c.trafficMode !== c._lastTrafficMode) {
-          if (c.trafficMode === 'yield') { this.yieldEntryCount++; this._event('yield_enter', { carId: c.id }); }
+          if (c.trafficMode === 'yield') {
+            this.yieldEntryCount++;
+            const yb = c._dbgYield;
+            this._event('yield_enter', yb
+              ? { carId: c.id, dp: Math.round(yb.dpAtEntry), etaOwn: +yb.etaOwn.toFixed(1), batchEta: +yb.batchEta.toFixed(1), premature: yb.premature }
+              : { carId: c.id });
+          }
           if (c.trafficMode === 'hold_exit') { this.holdExitEntryCount++; this._event('hold_exit_enter', { carId: c.id }); }
           if (c.trafficMode === 'batch') this.batchEntryCount++;
+          if (c._lastTrafficMode === 'yield' && c.trafficMode !== 'yield' && c._dbgYield) {
+            const d = this.ticks - c._dbgYield.startTick;
+            this.testMetrics.yieldExitCount++;
+            this.testMetrics.maxYieldDurationTicks = Math.max(this.testMetrics.maxYieldDurationTicks, d);
+            if (this.testMetrics.yieldDurations.length < 200) this.testMetrics.yieldDurations.push(d);
+            this._event('yield_exit', {
+              carId: c.id, duration: Math.round(d),
+              everSawBatchInZone: c._dbgYield.sawBatchInZone,
+              dpAtEntry: Math.round(c._dbgYield.dpAtEntry),
+              etaOwnAtEntry: +c._dbgYield.etaOwn.toFixed(1),
+              batchRemainingEtaAtEntry: +c._dbgYield.batchEta.toFixed(1),
+              idleTicks: Math.round(c._dbgYield.idleTicks)
+            });
+            c._dbgYield = null;
+          }
           c._lastTrafficMode = c.trafficMode;
         }
         c._assignedTrafficMode = c.trafficMode;
@@ -1103,14 +1177,14 @@
                 if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) continue;
                 if (this._getCachedForwardProgressMove(o, active, rd, dt)) continue;
                 o.maneuvering = true;
-                o.trafficMode = 'maneuver';
+                this._setMode(o, 'maneuver', 'cascade');
                 o.maneuverTimer = 0;
                 o.progressResumeTicks = 0;
                 o.plannerMode = 'traffic';
                 activeManeuverCount++;
                 const distToCenter = rd.cx - o.x;
                 o.maneuverPerpDir = distToCenter === 0 ? { x: 1, y: 0 } : { x: Math.sign(distToCenter), y: 0 };
-                this._event('maneuver_enter', { carId: o.id, reason: 'cascade' });
+                this._event('maneuver_enter', { carId: o.id, reason: 'cascade', dp: o._dbgDp ?? null, blockerId: c.id, npt: Math.round(o.noProgressTicks || 0), batchId: o.batchId });
               }
             }
           }
@@ -1122,9 +1196,9 @@
           const pathClear = canExitManeuverNow;
           if (assignedMode !== 'batch' && pathClear) {
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
-            c.trafficMode = assignedMode;
+            this._setMode(c, assignedMode, 'maneuver_exit_clear');
             activeManeuverCount = Math.max(0, activeManeuverCount - 1);
-            this._event('maneuver_exit', { carId: c.id });
+            this._event('maneuver_exit', { carId: c.id, reason: 'path_clear' });
             let bestKey = '', bestDist = 1e9;
             for (const key of rd.pathKeys) {
               if (!key.endsWith(c.target)) continue;
@@ -1141,9 +1215,9 @@
           } else if (assignedMode === 'batch' && pathClear) {
             // F2-T4: batch+stuck fix — batch cars were missing an exit branch, causing permanent maneuver lock.
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
-            c.trafficMode = 'batch';
+            this._setMode(c, 'batch', 'maneuver_exit_batch');
             activeManeuverCount = Math.max(0, activeManeuverCount - 1);
-            this._event('maneuver_exit', { carId: c.id });
+            this._event('maneuver_exit', { carId: c.id, reason: 'batch_path_clear' });
             let bestKey = '', bestDist = 1e9;
             for (const key of rd.pathKeys) {
               if (!key.endsWith(c.target)) continue;
@@ -1159,15 +1233,15 @@
             }
           } else if (assignedMode === 'hold_exit' && !pathClear) {
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
-            c.trafficMode = 'hold_exit';
+            this._setMode(c, 'hold_exit', 'maneuver_exit_hold');
             activeManeuverCount = Math.max(0, activeManeuverCount - 1);
-            this._event('maneuver_exit', { carId: c.id });
+            this._event('maneuver_exit', { carId: c.id, reason: 'hold_exit' });
           } else if (c.maneuverTimer > 180) {
             // Timeout exit — breaks cascade deadlocks (cars stuck maneuvering deep in spawn queue).
             c.maneuvering = false; c.maneuverTimer = 0; c.noProgressTicks = 0; c.progressResumeTicks = 0;
-            c.trafficMode = assignedMode;
+            this._setMode(c, assignedMode, 'maneuver_timeout');
             activeManeuverCount = Math.max(0, activeManeuverCount - 1);
-            this._event('maneuver_exit', { carId: c.id });
+            this._event('maneuver_exit', { carId: c.id, reason: 'timeout' });
             let bestKeyT = '', bestDistT = 1e9;
             for (const key of rd.pathKeys) {
               if (!key.endsWith(c.target)) continue;
@@ -1182,7 +1256,7 @@
               c.lane = parseInt(bestKeyT);
             }
           } else {
-            c.trafficMode = 'maneuver';
+            this._setMode(c, 'maneuver', 'maneuver_hold');
           }
         }
       }
@@ -1195,14 +1269,14 @@
       });
       for (const c of maneuverCandidates) {
         if (activeManeuverCount >= MAX_ACTIVE_MANEUVERS) break;
-        c.maneuvering = true; c.trafficMode = 'maneuver'; c.maneuverTimer = 0; c.progressResumeTicks = 0;
+        c.maneuvering = true; this._setMode(c, 'maneuver', 'maneuver_progress'); c.maneuverTimer = 0; c.progressResumeTicks = 0;
         c.plannerMode = 'traffic';
         this.maneuverTriggerCount++;
         activeManeuverCount++;
         this.testMetrics.maneuverEnterReasons.progress++;
         if (this.testMetrics.firstManeuverTick === null) this.testMetrics.firstManeuverTick = this.ticks;
         if (this.testMetrics.firstProgressManeuverTick === null) this.testMetrics.firstProgressManeuverTick = this.ticks;
-        this._event('maneuver_enter', { carId: c.id, reason: 'progress' });
+        this._event('maneuver_enter', { carId: c.id, reason: 'progress', dp: c._dbgDp ?? null, blockerId: c.primaryBlockerId ?? null, npt: Math.round(c.noProgressTicks || 0), batchId: c.batchId });
       }
       for (const c of mains) { c._maneuverCandidate = false; c._maneuverFrontOfJam = 0; }
 
@@ -1347,6 +1421,13 @@
             c.desSt = phase === 1 ? -perpSteer : perpSteer;
             c.desSpd = Math.max(0.25, Math.min(c.desSpd, 0.45));
           }
+          if (this.debugTrace && c._dbgWobblePhase !== phase) {
+            this._trace('wobble_phase', {
+              carId: c.id, phase, desSpd: +c.desSpd.toFixed(2),
+              batchId: c.batchId, dp: c._dbgDp === undefined || c._dbgDp === null ? null : Math.round(c._dbgDp)
+            });
+            c._dbgWobblePhase = phase;
+          }
         }
         c._conflictProgress = conflictProgress;
         c._targetClearance = this._managedTargetClearance(c, active, rd);
@@ -1408,12 +1489,12 @@
             this._commitPose(c, c.x, Math.max(c.y, rd.forkY + CAR_L / 2 + 3), c.th, rd, active);
             c.speed = 0;
             c.desSpd = 0;
-            c.trafficMode = 'hold_exit';
+            this._setMode(c, 'hold_exit', 'exit_blocked');
             c.zoneYielding = true;
             continue;
           }
           c.seg = c.target; c.merging = false; c.blinker = 0; c.maneuvering = false;
-          c.commitUntilFork = false; c.batchId = null; c.batchTarget = ''; c.trafficMode = 'free';
+          c.commitUntilFork = false; c.batchId = null; c.batchTarget = ''; this._setMode(c, 'free', 'branch_entry');
         }
         if (c.done && !c._finishLogged && !c.fixed) {
           c._finishLogged = true;
@@ -1731,24 +1812,60 @@
         c.batchId = isBatchMember ? zone.activeBatchId : null;
         c.batchTarget = isBatchMember ? zone.activeBatchTarget : '';
         if (!zone.schedulerEnabled) {
-          c.trafficMode = c.commitUntilFork ? 'commit' : 'free';
+          this._setMode(c, c.commitUntilFork ? 'commit' : 'free', 'scheduler_off');
           c.zoneYielding = false;
           continue;
         }
         if (isBatchMember) {
-          c.trafficMode = 'batch'; c.zoneYielding = false;
+          this._setMode(c, 'batch', 'batch_grant'); c.zoneYielding = false;
         } else if (nearFork && this._canTrailActiveBatch(c, zone, activeCars)) {
-          c.trafficMode = 'commit'; c.zoneYielding = false;
+          this._setMode(c, 'commit', 'trail_batch'); c.zoneYielding = false;
         } else if (nearFork && targetClear < EXIT_CLEARANCE) {
-          c.trafficMode = 'hold_exit'; c.zoneYielding = true;
+          this._setMode(c, 'hold_exit', 'exit_clearance'); c.zoneYielding = true;
         } else if (nearFork && zone.activeBatchId !== null && c.target !== zone.activeBatchTarget) {
-          c.trafficMode = 'yield'; c.zoneYielding = true;
+          // Yield bookkeeping: capture entry context once per yield episode (cleared
+          // by the latch block on exit). Read-only w.r.t. sim behavior.
+          if (!c._dbgYield) c._dbgYield = this._mkYieldEntry(c, zone, dp);
+          this._setMode(c, 'yield', 'opposite_target_batch', { etaOwn: +c._dbgYield.etaOwn.toFixed(1), batchEta: +c._dbgYield.batchEta.toFixed(1) });
+          c.zoneYielding = true;
         } else if (c.commitUntilFork) {
-          c.trafficMode = 'commit'; c.zoneYielding = false;
+          this._setMode(c, 'commit', 'commit_until_fork'); c.zoneYielding = false;
         } else {
-          c.trafficMode = 'free'; c.zoneYielding = false;
+          this._setMode(c, 'free', 'zone_free'); c.zoneYielding = false;
         }
       }
+    }
+
+    // Yield-entry context for the premature-yield detector (invariant b). etaOwn
+    // uses the scheduler's own ETA convention; batchEta is the slowest active
+    // batch member's time to fully EXIT the zone. Known over-reporting biases
+    // (documented in card BS): stalled members inflate batchEta via the 0.05
+    // speed floor, and an already-braked car inflates etaOwn — both err toward
+    // flagging, which is the right direction for a diagnostic.
+    _mkYieldEntry(c, zone, dp) {
+      const etaOwn = dp / Math.max(c.speed, 0.05);
+      let batchEta = 0;
+      for (const o of this.cars) {
+        if (o.done || !zone.batchMembers.includes(o.id)) continue;
+        const zi = zone.paths.get(o.pathKey);
+        if (zi === undefined) continue;
+        const remaining = (zi - o.pathIdx) * PATH_SP + zone.radius;
+        batchEta = Math.max(batchEta, remaining / Math.max(o.speed, 0.05));
+      }
+      const premature = dp > CAR_L * 2 && batchEta > 0 && etaOwn > batchEta * 1.5;
+      if (premature) {
+        this.testMetrics.prematureYieldCount++;
+        if (this.testMetrics.prematureYieldLog.length < 100) {
+          this.testMetrics.prematureYieldLog.push({
+            tick: this.ticks, carId: c.id, dp: Math.round(dp),
+            etaOwn: +etaOwn.toFixed(1), batchEta: +batchEta.toFixed(1),
+            batchId: zone.activeBatchId, members: zone.batchMembers.join(','),
+            speed: +c.speed.toFixed(2)
+          });
+        }
+        this._event('premature_yield', { carId: c.id, dp: Math.round(dp), etaOwn: +etaOwn.toFixed(1), batchEta: +batchEta.toFixed(1) });
+      }
+      return { startTick: this.ticks, dpAtEntry: dp, zone, etaOwn, batchEta, sawBatchInZone: false, idleTicks: 0, premature };
     }
 
     _findPrimaryBlocker(c, active) {
