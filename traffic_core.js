@@ -2669,6 +2669,7 @@
       this.sim = sim;
       this.opts = opts || {};
       this.theme = RENDER_THEMES[this.opts.theme] || RENDER_THEMES.classic;
+      this.debugMode = !!this.opts.debug; // diagnostic overlay (?debug=1 / 'd' key)
       this._sceneBuf = null;   // offscreen buffer canvas
       this._sceneBufW = 0;
       this._sceneBufH = 0;
@@ -2807,7 +2808,89 @@
       if (this._sceneBuf) ctx.drawImage(this._sceneBuf, 0, 0);
       this._road(rd, logicalH); this._stop(rd); this._cars(rd, logicalH);
       this._animLayer(rd, logicalW, logicalH);
+      if (this.debugMode) this._debugLayer(rd, logicalW, logicalH);
       this._lastView = { scale, offsetX, offsetY, logicalW, logicalH };
+      ctx.restore();
+    }
+    // ── Diagnostic overlay (?debug=1 / 'd' key). Read-only: draws sim state and
+    // detector logs; never writes to Sim/Car. Technical labels intentionally
+    // untranslated (debug strings, not UI copy).
+    _debugLayer(rd, w, h) {
+      const ctx = this.ctx, sim = this.sim;
+      ctx.save();
+      ctx.font = '5px JetBrains Mono, monospace';
+      // 1) Conflict zone discs + active batch label
+      for (const zone of rd.conflictZones) {
+        ctx.strokeStyle = 'rgba(255, 180, 40, 0.85)';
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([3, 2]);
+        ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.radius, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        if (zone.activeBatchId !== null) {
+          ctx.fillStyle = 'rgba(255, 220, 120, 0.95)';
+          ctx.fillText(`batch#${zone.activeBatchId}→${zone.activeBatchTarget}`, zone.x + zone.radius + 2, zone.y - 2);
+        }
+      }
+      const live = sim.cars.filter(c => !c.done);
+      for (const c of live) {
+        // 2) Batch member ring (green) — the granted cars
+        if (c.batchId !== null) {
+          ctx.strokeStyle = 'rgba(60, 230, 120, 0.9)';
+          ctx.lineWidth = 0.9;
+          ctx.beginPath(); ctx.arc(c.x, c.y, CAR_L * 0.75, 0, Math.PI * 2); ctx.stroke();
+        }
+        // 3) Yield→zone dashed line + dp text
+        if (c._dbgYield && c._dbgYield.zone) {
+          const z = c._dbgYield.zone;
+          ctx.strokeStyle = 'rgba(230, 180, 60, 0.65)';
+          ctx.lineWidth = 0.6;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(z.x, z.y); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(230, 180, 60, 0.95)';
+          const yieldFor = Math.round(sim.ticks - c._dbgYield.startTick);
+          ctx.fillText(`y${yieldFor}${c._dbgYield.premature ? '!' : ''}`, c.x + CAR_W, c.y - CAR_W);
+        }
+        // 4) Maneuver perp arrow + phase digit (red tint when granted — the bug-2 state)
+        if (c.maneuvering) {
+          const granted = c.batchId !== null;
+          ctx.strokeStyle = granted ? 'rgba(255, 60, 30, 0.95)' : 'rgba(255, 140, 30, 0.85)';
+          ctx.lineWidth = 1;
+          const px = c.x + c.maneuverPerpDir.x * 18, py = c.y + c.maneuverPerpDir.y * 18;
+          ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(px, py); ctx.stroke();
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.fillText(String(Math.floor(c.maneuverTimer / 12) % 4), px + 1, py);
+        }
+        // 6) Car id + dp for committed approach cars
+        ctx.fillStyle = 'rgba(20, 30, 40, 0.85)';
+        if (this.theme.scene === 'night') ctx.fillStyle = 'rgba(235, 240, 250, 0.85)';
+        ctx.fillText(String(c.id), c.x - CAR_W * 0.4, c.y - CAR_L * 0.7);
+        if (c.trafficMode === 'commit' && c._dbgDp !== undefined && c._dbgDp !== null && c._dbgDp < BATCH_APPROACH_DIST) {
+          ctx.fillText(`dp${Math.round(c._dbgDp)}`, c.x + CAR_W * 0.8, c.y + 2);
+        }
+      }
+      // 5) Near-miss flash — recent entries from the diagnostic log
+      const nm = sim.testMetrics.nearMissLog;
+      for (let i = Math.max(0, nm.length - 20); i < nm.length; i++) {
+        const e = nm[i];
+        if (e.tick < sim.ticks - 30) continue;
+        const mx = (e.ax + e.bx) / 2, my = (e.ay + e.by) / 2;
+        const pulse = 0.4 + 0.4 * Math.sin(Date.now() / 120);
+        const granted = sim.testMetrics.grantedNearMissLog.some(g => g.tick === e.tick && g.aId === e.aId && g.bId === e.bId);
+        ctx.strokeStyle = `rgba(255, 40, 40, ${pulse})`;
+        ctx.lineWidth = granted ? 1.6 : 0.8;
+        ctx.beginPath(); ctx.arc(mx, my, CAR_L * 0.9, 0, Math.PI * 2); ctx.stroke();
+      }
+      // 7) Event ticker — last 8 events, top-left
+      const evs = sim.testEvents.slice(-8);
+      ctx.font = '4.5px JetBrains Mono, monospace';
+      ctx.fillStyle = this.theme.scene === 'night' ? 'rgba(220, 230, 245, 0.8)' : 'rgba(25, 40, 45, 0.8)';
+      evs.forEach((e, i) => {
+        const desc = e.type === 'mode_change'
+          ? `${e.prev}→${e.next} ${e.reason || ''}`
+          : Object.entries(e).filter(([k]) => k !== 'tick' && k !== 'type').slice(0, 3).map(([k, v]) => `${k}=${v}`).join(' ');
+        ctx.fillText(`t${Math.round(e.tick)} ${e.type} ${desc}`.slice(0, 60), 3, 6 + i * 5.5);
+      });
       ctx.restore();
     }
     // Hit-test a CSS-pixel canvas coordinate against live car rects (+2px slack).
