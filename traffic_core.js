@@ -46,12 +46,12 @@
   const CONFLICT_CROSS_SPEED = 1;
   const CONFLICT_GUARD_SPAN = CAR_L * 3;
   // Yield horizon (Bug-1 fix, 2026-06-12): yield assignment + yield braking act
-  // only within this distance of the zone — decoupled from BATCH_APPROACH_DIST
-  // (which silently scaled 170→380 with the COMMIT_DIST calibration). With the
-  // ETA gate below, the horizon is the paradox-cost lever: sweep over the four
-  // seed triples gave 170 → Q red (3L beats 1L), 260 → 3/4, 300 → 2/4,
-  // 340 → 4/4 paradox (worst margin +0.8%). 340 stays under BATCH_APPROACH.
-  const YIELD_NEAR_DIST = 340;
+  // only within this distance of the zone — an independent dial, decoupled from
+  // BATCH_APPROACH_DIST. The REAL premature-yield fix is the ETA gate below
+  // (premature count is zero by construction at any horizon); the horizon is
+  // the paradox-cost lever. After the nearest-zone precedence fix, the 4-triple
+  // sweep needs the full 380 horizon (340 left 3L beating 1L on seeds 301).
+  const YIELD_NEAR_DIST = 380;
   // ETA gate (Bug-1 fix): a NEW yield episode starts only if the car could
   // plausibly reach the zone while the active batch is still transiting
   // (etaOwn <= batchEta × factor), or if it is already dangerously close
