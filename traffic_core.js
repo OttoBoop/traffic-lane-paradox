@@ -831,6 +831,17 @@
                 bManeuver: !!(b.maneuvering),
               });
             }
+            // Invariant (c): near-miss involving a granted car inside the zone
+            if ((a._insideConflictPrev && a.batchId !== null) || (b._insideConflictPrev && b.batchId !== null)) {
+              this.testMetrics.grantedNearMissCount++;
+              if (this.testMetrics.grantedNearMissLog.length < 100) {
+                this.testMetrics.grantedNearMissLog.push({
+                  tick, aId: a.id, bId: b.id, gap: +dist.toFixed(1),
+                  aBatch: a.batchId, bBatch: b.batchId,
+                  aMan: !!a.maneuvering, bMan: !!b.maneuvering,
+                });
+              }
+            }
           }
           // Margin-based overlap detection (PROJ_MARGIN = 2px)
           const marginOverlap = satOverlapMargin(a.x, a.y, a.th, b.x, b.y, b.th, PROJ_MARGIN);
@@ -868,6 +879,57 @@
               aSeg: a.seg, bSeg: b.seg,
               aSpeed: a.speed, bSpeed: b.speed,
             });
+          }
+        }
+      }
+    }
+
+    // Always-on invariant detectors (read-only; post-commit so speed/steer are
+    // final values). Feeds the BS/BT/BU/BV diagnostic cards.
+    // (a) batch∧maneuver hybrid state (+ reverse-in-zone detail)
+    // (c) aggressive steer inside the zone while granted
+    // (BV) yield episode bookkeeping (duration / idle-zone / saw-batch)
+    _invariantDetectors(allActive, rd) {
+      const AGGR_STEER = 0.25; // vs MAX_ST = 0.40
+      const tm = this.testMetrics;
+      for (const c of allActive) {
+        if (c.done || c.fixed) continue;
+        const inZone = !!c._insideConflictPrev;
+        if (c.maneuvering && c.batchId !== null) {
+          tm.batchManeuverTickCount++;
+          const reversing = c.speed < 0;
+          if (reversing && inZone) tm.batchManeuverReverseInZoneCount++;
+          if (tm.batchManeuverLog.length < 100) {
+            tm.batchManeuverLog.push({
+              tick: this.ticks, carId: c.id,
+              dp: c._dbgDp === undefined || c._dbgDp === null ? null : Math.round(c._dbgDp),
+              speed: +c.speed.toFixed(2), steer: +c.steer.toFixed(2),
+              phase: Math.floor(c.maneuverTimer / 12) % 4,
+              inZone, reversing, batchId: c.batchId, mode: c.trafficMode,
+            });
+          }
+        }
+        if (inZone && (c.trafficMode === 'batch' || c.batchId !== null) && Math.abs(c.steer) > AGGR_STEER) {
+          tm.zoneAggressiveSteerCount++;
+          if (tm.zoneAggressiveSteerLog.length < 100) {
+            tm.zoneAggressiveSteerLog.push({
+              tick: this.ticks, carId: c.id, steer: +c.steer.toFixed(2),
+              desSt: +c.desSt.toFixed(2), speed: +c.speed.toFixed(2),
+              maneuvering: !!c.maneuvering, batchId: c.batchId,
+            });
+          }
+        }
+        if (c._dbgYield) {
+          const yb = c._dbgYield;
+          tm.maxYieldDurationTicks = Math.max(tm.maxYieldDurationTicks, this.ticks - yb.startTick);
+          if (yb.zone.activeBatchId === null) {
+            yb.idleTicks++;
+            tm.maxYieldIdleTicks = Math.max(tm.maxYieldIdleTicks, yb.idleTicks);
+          } else if (!yb.sawBatchInZone) {
+            for (const o of allActive) {
+              if (o.done || !o._insideConflictPrev) continue;
+              if (yb.zone.batchMembers.includes(o.id)) { yb.sawBatchInZone = true; break; }
+            }
           }
         }
       }
@@ -1584,6 +1646,7 @@
       }
 
       this._diagnosticOverlapCheck(allActive, this.ticks);
+      this._invariantDetectors(allActive, rd);
 
       for (const c of active) { delete c._pq; delete c._gap; delete c._progress; delete c._progressDelta; delete c._conflictProgress; delete c._targetClearance; }
 
