@@ -4029,6 +4029,8 @@
         if (cfg.zoneYielding !== undefined) car.zoneYielding = cfg.zoneYielding;
         if (cfg.noProgressTicks !== undefined) car.noProgressTicks = cfg.noProgressTicks;
         if (cfg.progressResumeTicks !== undefined) car.progressResumeTicks = cfg.progressResumeTicks;
+        if (cfg.maneuverTimer !== undefined) car.maneuverTimer = cfg.maneuverTimer;
+        if (cfg.maneuverPerpDir !== undefined) car.maneuverPerpDir = cfg.maneuverPerpDir;
         sim.cars.push(car);
       });
     }
