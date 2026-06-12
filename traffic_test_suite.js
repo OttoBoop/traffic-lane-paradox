@@ -4288,33 +4288,40 @@
       family: "diagnostic",
       name: "Batch∧maneuver hybrid — granted cars must not wobble (esp. reverse in zone)",
       proof:
-        "3L/40 50/50 (seed 307, the S/AH-style stress regime). Counts ticks where a " +
-        "car is simultaneously maneuvering AND batch-granted — the wobble override " +
+        "3L/40 50/50, seeds 307 + 42. The hybrid state is strongly seed-dependent: " +
+        "the 2026-06-12 hunt found seed 307 (the usual stress seed) produces ZERO " +
+        "hybrid ticks while neighbours produce hundreds at plain dt=1 (s308=29, " +
+        "s309=87, s310=306 + 9 DNFs, s42=572 + 10 overlaps). The wobble override " +
         "(phases 0/2 set desSpd=-REVERSE_SPD) has no batch exclusion, so a granted " +
-        "car can reverse inside the conflict zone. Verdict is the future guard " +
-        "condition: zero hybrid ticks and zero reverse-in-zone.",
+        "car reverse-wobbles at max steer on the zone APPROACH (dp 160-370; the " +
+        "in-zone disc itself stays clean — reverseInZone counts that sub-case). " +
+        "Verdict is the future guard condition: zero hybrid ticks across both seeds.",
       build() {
         return {
           cases: [
-            standardCase("3L/40", { lanes: 3, cars: 40, split: 50, seed: 307, maxTicks: 12000, stepsPerFrame: 20 }),
+            standardCase("s307", { lanes: 3, cars: 40, split: 50, seed: 307, maxTicks: 12000, stepsPerFrame: 20 }),
+            standardCase("s42", { lanes: 3, cars: 40, split: 50, seed: 42, maxTicks: 12000, stepsPerFrame: 20 }),
           ],
           state: {},
         };
       },
       metrics(inst) {
-        const m = inst.cases[0].sim.testMetrics;
-        const sample = m.batchManeuverLog.slice(0, 3)
-          .map((e) => `car ${e.carId}@t${Math.round(e.tick)} ph${e.phase} v=${e.speed}${e.inZone ? " IN-ZONE" : ""}${e.reversing ? " REV" : ""}`)
-          .join(" | ");
-        return {
-          hybridTicks: m.batchManeuverTickCount,
-          reverseInZone: m.batchManeuverReverseInZoneCount,
-          sample: sample || "none",
-        };
+        const out = {};
+        inst.cases.forEach((k) => {
+          const m = k.sim.testMetrics;
+          const sample = m.batchManeuverLog.slice(0, 2)
+            .map((e) => `car ${e.carId}@t${Math.round(e.tick)} ph${e.phase} v=${e.speed}${e.inZone ? " IN-ZONE" : ""}${e.reversing ? " REV" : ""}`)
+            .join(" | ");
+          out[`${k.label} hybrid/revZone`] = `${m.batchManeuverTickCount}/${m.batchManeuverReverseInZoneCount}`;
+          out[`${k.label} overlaps`] = m.overlapCount;
+          out[`${k.label} sample`] = sample || "none";
+        });
+        return out;
       },
       verdict(inst) {
-        const m = inst.cases[0].sim.testMetrics;
-        return m.batchManeuverTickCount === 0 && m.batchManeuverReverseInZoneCount === 0;
+        return inst.cases.every((k) =>
+          k.sim.testMetrics.batchManeuverTickCount === 0 &&
+          k.sim.testMetrics.batchManeuverReverseInZoneCount === 0);
       },
     },
     // ─── Card BU: Granted-crossing safety — steer + near-miss in zone (invariant c) ──
