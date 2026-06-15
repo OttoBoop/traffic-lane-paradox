@@ -1,8 +1,13 @@
 # Unicorn Summit – South America — Palestrantes × Rio de Janeiro
 
 **Pesquisa:** 15/06/2026 · **Fonte da lista:** HTML da página de speakers de
-`https://sa.unicornsummit.net/` (33 palestrantes) · **Status:** em elaboração (loop de
-pesquisa + fase de revisão).
+`https://sa.unicornsummit.net/` (33 palestrantes) · **Status:** **completo — 33/33 + fase de
+revisão**.
+
+> **Local provável do evento:** duas fontes independentes (perfis de palestrantes) apontam
+> **Juiz de Fora, MG — 30/08 a 02/09/2026**, a ~180 km do Rio. Não confirmado oficialmente. A
+> análise abaixo trata de "ajudar **o Rio de Janeiro**" (a cidade e seu ecossistema),
+> independentemente da sede do evento.
 
 ## O que é este documento
 Para **cada palestrante** do Unicorn Summit South America, este material reúne três
@@ -45,7 +50,53 @@ Brasil/Rio) de **capacidade plausível** (poderia, mas sem evidência).
 21. ✅ Nigel Cameron · 22. ✅ William Faloon · 23. ✅ Nancy Conrad ·
 24. ✅ Yael Sorek-Benvenisti · 25. ✅ Anastasiya Giarletta · 26. ✅ Susana García-Robles ·
 27. ✅ Devin Fidler · 28. ✅ Alexandra Cattoni · 29. ✅ James Hughes · 30. ✅ Trisa Thompson ·
-31. ✅ Christine Peterson · 32. ⏳ Gordan Lauc · 33. ⏳ Nuno Martins
+31. ✅ Christine Peterson · 32. ✅ Gordan Lauc · 33. ✅ Nuno Martins
+
+**Cobertura: 33/33 ✅ · revisão concluída.**
+
+---
+
+## Tabela-resumo (33 palestrantes)
+
+Lente Rio = a mais forte de cada pessoa (Capital / Operações / Filantropia / Ecossistema).
+⭐ = laço com o Brasil/Rio **documentado** e verificado. Net worth: quase sempre **não público**
+→ proxy de porte da empresa/fundo (≠ patrimônio pessoal).
+
+| # | Speaker | Cargo / Empresa | Net worth / proxy | Lente Rio mais forte |
+|---|---|---|---|---|
+| 1 | Naveen Jain | Founder & CEO, Viome | ~US$300M (baixa conf.); Viome ~US$415M (proxy) | Ecossistema **Média** — sem laço BR |
+| 2 | Steven Garan | Dir. Bioinformática, CREA/UC Berkeley | Não público | Ecossistema **Média** — sem laço |
+| 3 | Salim Ismail | Autor *Exponential Orgs*; fundador OpenExO | Não público | Ecossistema **Média** — ExO já no Brasil (doc.) |
+| 4 | Ricardo Gil da Costa | Founder & CEO, Neuroverse | Não público (US$13,3M captados) | Ecossistema **Média** — lusófono; sem laço BR |
+| 5 | Alexander Paziotopoulos | CEO, The Pazio Institute | Não público (clínica <US$5M) | Ecossistema **Média** — sem laço |
+| 6 | Blake Simmons | Dir. de Divisão, Berkeley Lab/JBEI | Não público | Ecossistema **Média** — afinidade cana/bioenergia |
+| 7 | Shira Kaplan | Founder & CEO, Cyverse AG | Não público (~US$5M rec.) | Ecossistema **Média** — cyber Israel→BR |
+| 8 | **Fabrício Campos** ⭐ | Pró-Reitor de Inovação, UFJF | Não público (servidor) | **Ecossistema Alta — PhD COPPE/UFRJ (doc.)** |
+| 9 | Brigitte Hanly | CEO, Stemaid Institute | Não público | Ecossistema **Média** — sem laço; ressalvas |
+| 10 | **Jeff Hoffman** ⭐ | Chairman, GEN (eq. fund. Priceline) | Não público (~US$80M, baixa) | **Ecossistema Alta — South Summit Brazil/GEC Rio (doc.)** |
+| 11 | **Raphael Roettgen** ⭐ | Founder, E2MC Ventures (espaço) | Não público | **Ecossistema Alta / Capital Média — PUC-Rio, fintech BR (doc.)** |
+| 12 | Mauricio Chamati | Co-founder Mercado Bitcoin; CEO Jumpad AI | Não público (2TM US$2,1B proxy) | Capital **Média** — BR (SP), sem laço Rio |
+| 13 | Jean García Periche | Presidente, Center for Public Intelligence | Não público | Ecossistema **Média** — gov. de IA; sem laço Rio |
+| 14 | Patrick Sewell | Founder, Triple Helix Science | Não público | Ecossistema **Média** — terapia gênica; sem laço |
+| 15 | **Rubens Mendrone** | Founder & CEO, LINDA Lifetech | Não público (~US$4M captados) | Ecossistema **Alta** / Operações Média — healthtech (INCA) |
+| 16 | Gonzalo Martinez Schacht | MP, LAN Accelerator (VC LatAm) | Não público (fundo nascente) | Ecossistema **Média** — VC LatAm; sem laço Rio |
+| 17 | Anna Yusim | Psiquiatra/coach; faculty Yale | Não público | Ecossistema **Média** — sem laço |
+| 18 | Kirill Korotaev | Co-founder & CEO, Purple Gaze | Não público | Ecossistema **Média** — neurotech; sem laço |
+| 19 | Oleviia Kiber | Founder, Cyber Myonics | Não público | Ecossistema **Média** (baixo) — sem laço |
+| 20 | Carlos Azevedo | Dir. de Data Science, Coteminas | Não público (executivo) | Ecossistema **Média** — BR (MG), sem laço Rio |
+| 21 | Nigel Cameron | President Emeritus, C-PET | Não público | Ecossistema **Média** — ética de IA; sem laço |
+| 22 | William Faloon | Co-founder, Life Extension | Não público (LE ~US$168M rec.) | Ecossistema **Média** — sem laço |
+| 23 | Nancy Conrad | Founder & Chairman, Conrad Foundation | Não público | Filantropia **Média** — STEM global; sem laço BR |
+| 24 | **Yael Sorek-Benvenisti** | Deputy CEO, Insurtech Israel | Não público | **Ecossistema Alta** — mandato Israel→LatAm |
+| 25 | Anastasiya Giarletta | Principal, R42 Group (VC IA/long.) | Não público (fundo ~US$16M) | Ecossistema **Alta** / Capital Média — sem laço BR |
+| 26 | **Susana García-Robles** ⭐⭐ | MP, Capria Ventures (ex-BID Lab) | Não público (catalisou US$300M+) | **Capital/Filantropia/Ecossistema Alta — 17 fundos no BR, ABVCAP (doc.)** |
+| 27 | Devin Fidler | Founder, Rethinkery (ex-IFTF) | Não público | Ecossistema **Média** — foresight; sem laço |
+| 28 | Alexandra Cattoni | Founder, Copy Posse | Não público (US$1–5M proxy) | Ecossistema **Média** — mkt digital; barreira idioma |
+| 29 | **James Hughes** ⭐ | Exec. Director, IEET | Não público (IEET ~US$615k) | Ecossistema **Média** — **laço FIOCRUZ/Rio (doc.)** |
+| 30 | Trisa Thompson | Ex-CRO da Dell (ESG) | Não público | Filantropia/impacto **Média** — ESG; sem laço pessoal |
+| 31 | Christine Peterson | Co-founder, Foresight Institute | Não público | Ecossistema **Alta** / Filantropia Média — grants globais |
+| 32 | Gordan Lauc | CEO Genos; CSO GlycanAge | Não público (GlycanAge ~US$12,9M) | Ecossistema **Média** — longevidade; sem laço BR |
+| 33 | Nuno Martins | CEO Lux Premium; Hanu Ventures | Não público (Lux ~€500M proxy) | Ecossistema **Alta** / Capital Média — lusófono; sem laço Rio |
 
 ---
 
@@ -571,7 +622,97 @@ o Brasil ainda.
 Space Society · 80,000 Hours.
 
 ### 32. Gordan Lauc — Professor; CEO Genos / GlycanAge
-<!-- SLOT_32 --> _(pesquisa pendente)_
+**Por que é notório:** Cientista croata; **Professor Titular de Bioquímica (Univ. Zagreb)**;
+referência mundial em **glicômica**. Fundou a **Genos** (2007; líder global em análise de
+glicanos / CRO) e cofundou a **GlycanAge** (2020, com a filha Nikolina; teste de idade
+biológica por glicanos da IgG), onde é CSO. Co-diretor do **Human Glycome Project**. 200+
+artigos, 10.000+ citações; prof. honorário em Edinburgh e King's College.
+**Net worth / proxy:** **Não público.** *Proxy:* GlycanAge captou ~**US$12,9 mi** (Seed €3,9
+mi/2024; Série A €7,4 mi/2025); Genos via projetos europeus/CRO. Co-fundador em duas empresas —
+exposição de "baixas dezenas de milhões €" em valor de papel, sem dado verificável. Baixa.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Baixa** · Filantropia **Sem evidência**
+· Ecossistema **Média**. **Veredito:** cientista-empreendedor de alto calibre em longevidade;
+a expansão recente prioriza Europa/Oriente Médio (lab em Riad), **não** a América Latina.
+**Nenhum vínculo com o Brasil**; valor = conector científico/mentor para grupos de
+glicobiologia/envelhecimento (USP/Fiocruz/UFRJ); parceria laboratorial possível por analogia
+(modelo KACST), mas requer abordagem ativa.
+**Fontes:** Lifeboat (bio) · Tracxn/EU-Startups (captação GlycanAge) · GeroScience (papers) ·
+Longevity.Technology.
 
 ### 33. Nuno Martins — Empreendedor serial, investidor, cientista
-<!-- SLOT_33 --> _(pesquisa pendente)_
+**Por que é notório:** Empreendedor/investidor/cientista **português**. Co-fundador e CEO da
+**Lux Premium** (grande incorporadora imobiliária em Portugal; ~€500 mi em projetos) e da
+**Hanu Ventures** (VC em longevidade/biotech/IA). Cientista de **neuro-nanotecnologia/BCI**
+(artigo "Human Brain Cloud Interface" entre os mais vistos da *Frontiers in Neuroscience*);
+afiliado a UC Berkeley/LBNL (2016–19). Keynote internacional (inclui Brasil).
+**Net worth / proxy:** **Não público.** *Proxy:* Lux Premium ~€500 mi em projetos (não é
+patrimônio pessoal); Hanu Ventures sem AUM divulgado. "Multimilionário" aparece em material
+promocional, sem auditoria. Baixa.
+**Pode ajudar o Rio?** Capital **Média** · Operações **Baixa** · Filantropia **Sem evidência**
+· Ecossistema **Alta**. **Veredito:** perfil raro (neuro-nanotech + VC + imobiliário) com
+**laço lusófono** (facilita engajamento com o Brasil) e capacidade de capital via Hanu
+Ventures; **nenhum vínculo operacional/de investimento documentado com o Rio** — qualquer
+aporte seria novo. Valor imediato = conector/mentor de deep tech e longevidade.
+**Fontes:** nunorbmartins.com / Google Scholar (ciência) · Global Man (Lux Premium) · Webit ·
+PubMed/PMC · Lifeboat.
+
+---
+
+## Top candidatos para o Rio (síntese)
+
+**Leitura geral.** Entre os 33, a lente dominante é **ecossistema/mentoria** — é um evento
+majoritariamente de longevidade/healthspan, deep tech e futuros, com **poucos alocadores de
+capital**. **Patrimônio pessoal quase nunca é público** (usamos proxies). E **vínculo
+documentado com o Rio especificamente é raro**: a maioria oferece *capacidade plausível*, não
+laço existente. Abaixo, ordenados por relevância real = laço com o Brasil/Rio + capacidade na
+lente que importa + viabilidade.
+
+### Nível 1 — Mais relevantes (laço documentado com o Brasil + alta capacidade)
+1. **Susana García-Robles (#26) — capital + ecossistema.** A aposta mais forte do roster.
+   Arquiteta do VC latino-americano (US$300M+ via BID Lab em 90 fundos; **17 fundos no Brasil**;
+   cofundadora da **ABVCAP**). Pode **conectar gestoras e founders do Rio a LPs internacionais**
+   e legitimar o hub. *Engajar:* apadrinhar um fundo/iniciativa de VC carioca ou um capítulo da
+   rede WeInvest (mulheres investidoras) no Rio.
+2. **Raphael Roettgen (#11) — space/deep tech (ecossistema + capital).** Alemão-brasileiro,
+   **PUC-Rio**, fundou fintech no Brasil, livro PT-BR com ex-presidente da **AEB**; VC espacial
+   (E2MC) + SPAC de US$200M. *Engajar:* curadoria/mentoria de uma vertical de space/deep tech;
+   pipeline de co-investimento.
+3. **Jeff Hoffman (#10) — empreendedorismo (ecossistema).** Laço documentado com o Brasil
+   (**South Summit Brazil 2024**; GEN/GEW; o Rio já sediou o **GEC**); rede global de 190+ países.
+   *Engajar:* trazer a Global Entrepreneurship Week/programas do GEN ao Rio; mentoria de founders.
+4. **Fabrício Campos (#8) — inovação universitária (ecossistema).** Brasileiro, **doutor pela
+   COPPE/UFRJ**, opera incubadora + parque tecnológico (UFJF) e a Rede Mineira de Inovação.
+   Ponte natural MG↔RJ. *Engajar:* convênio UFJF–UFRJ/PUC-Rio, FAPERJ; replicar modelo de NIT/parque.
+
+### Nível 2 — Forte capacidade; laço indireto ou mandato estratégico
+5. **Mauricio Chamati (#12) — capital/fintech.** Co-fundador de unicórnio (**Mercado Bitcoin/2TM,
+   US$2,1B**), brasileiro; capacidade financeira real, mas base em SP e **sem laço com o Rio**.
+6. **Yael Sorek-Benvenisti (#24) — insurtech.** **Mandato explícito** de expansão Israel→LatAm;
+   estratégica para o polo segurador do Rio (IRB-Brasil Re, sandbox da SUSEP).
+7. **James Hughes (#29) — bioética/deep tech.** **Laço documentado com a FIOCRUZ/Rio** (seminário
+   GIFT-H+/CNPq). Pontes acadêmicas, não capital.
+8. **Rubens Mendrone (#15) — healthtech.** IA para câncer de mama (fit com INCA/SUS); conector
+   BR–Canadá.
+9. **Anastasiya Giarletta (#25)** e **Nuno Martins (#33)** — VC de longevidade/IA; Nuno com laço
+   lusófono. Capacidade de capital, sem pipeline carioca documentado.
+10. **Salim Ismail (#3)** — metodologia ExO já presente no Brasil; mentoria de transformação de
+    grandes empresas.
+
+### Nível 3 — Valor temático/mentoria, sem laço com o Rio
+Os demais ~21 palestrantes são perfis de **conhecimento e rede** (longevidade, IA, espaço,
+nanotech, ESG, educação STEM, marketing). Úteis como palestrantes/mentores e para atrair
+holofote internacional, mas **sem laço documentado com o Rio** e sem capacidade clara de
+capital/operações locais no curto prazo. Dois caminhos de baixo custo a explorar: **Nancy
+Conrad (#23)** — incluir estudantes cariocas no *Conrad Challenge*; **Christine Peterson (#31)**
+— *grants/fellowships* do Foresight Institute para pesquisadores/startups do Rio.
+
+### Ressalvas (fase de revisão)
+- **Net worth:** quase todos "não público"; cifras de *Celebrity Net Worth* e similares têm
+  confiança **Baixa**. Proxy de empresa (valuation/captação/receita) **≠** patrimônio pessoal.
+- **Laços com o Rio:** os 4 mais decisivos foram **verificados por busca independente** (Susana
+  García-Robles, Jeff Hoffman, Raphael Roettgen, James Hughes) — todos **confirmados**.
+- **Bloqueio de fontes:** o site do Summit e muitos perfis (LinkedIn, Crunchbase) bloqueiam
+  acesso automatizado (403); vários dados vêm de *snippets* de busca, com confiança rebaixada.
+- **"Sem evidência" ≠ "inexistente":** ausência de laço documentado não prova ausência de laço.
+- Material é **síntese de pesquisa pública** (jun/2026), não due diligence nem aconselhamento
+  financeiro/jurídico.
