@@ -42,10 +42,10 @@ Brasil/Rio) de **capacidade plausível** (poderia, mas sem evidência).
 11. ✅ Raphael Roettgen · 12. ✅ Mauricio Chamati · 13. ✅ Jean García Periche ·
 14. ✅ Patrick Sewell · 15. ✅ Rubens Mendrone · 16. ✅ Gonzalo Martinez Schacht ·
 17. ✅ Anna Yusim · 18. ✅ Kirill Korotaev · 19. ✅ Oleviia Kiber · 20. ✅ Carlos Azevedo ·
-21. ✅ Nigel Cameron · 22. ⏳ William Faloon · 23. ⏳ Nancy Conrad ·
-24. ⏳ Yael Sorek-Benvenisti · 25. ⏳ Anastasiya Giarletta · 26. ⏳ Susana Garcia-Robles ·
-27. ⬜ Devin Fidler · 28. ⬜ Alexandra Cattoni · 29. ⬜ James Hughes · 30. ⬜ Trisa Thompson ·
-31. ⬜ Christine Peterson · 32. ⬜ Gordan Lauc · 33. ⬜ Nuno Martins
+21. ✅ Nigel Cameron · 22. ✅ William Faloon · 23. ✅ Nancy Conrad ·
+24. ✅ Yael Sorek-Benvenisti · 25. ✅ Anastasiya Giarletta · 26. ✅ Susana García-Robles ·
+27. ✅ Devin Fidler · 28. ✅ Alexandra Cattoni · 29. ✅ James Hughes · 30. ✅ Trisa Thompson ·
+31. ✅ Christine Peterson · 32. ⏳ Gordan Lauc · 33. ⏳ Nuno Martins
 
 ---
 
@@ -423,34 +423,152 @@ governança e ética de IA para setor público e universidades; conexões UNESCO
 Canada · Berkley Center (Georgetown).
 
 ### 22. William Faloon — Co-founder, Life Extension
-<!-- SLOT_22 --> _(pesquisa pendente)_
+**Por que é notório:** Co-fundador (com Saul Kent) da **Life Extension Foundation** (1980,
+Fort Lauderdale) e do **Life Extension Buyers Club** (suplementos que financiam pesquisa de
+longevidade). Ativista histórico da longevidade; fundou a Church of Perpetual Life, a Society
+for the Rescue of Our Elders e o "FDA Holocaust Museum"; autor (*Pharmocracy*; *Disease
+Prevention and Treatment*). Ícone do movimento anti-regulatório de suplementos: enfrentou
+**indiciamento federal (1991, dezenas de acusações)** encerrado sem condenação (1995–96).
+**Net worth / proxy:** **Não público.** *Proxy:* Life Extension (privada) ~US$168 mi/ano
+(estimativa Zippia/Owler), 500–1.000 funcionários; aquisições pessoais de imóveis (US$880 mil
++ bunker ~US$1,15 mi). Sugere patrimônio de dezenas de milhões — estimativa indireta de baixa
+confiança.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Baixa** · Filantropia **Baixa**
+(concentrada em pesquisa de longevidade nos EUA) · Ecossistema **Média**. **Veredito:**
+referência global em longevidade/suplementos com capacidade financeira (proxy), mas **nenhum
+laço documentado com o Brasil**; valor realista = rede/mentoria, não capital/operações.
+**Fontes:** Wikipedia (William Faloon) · Miami New Times (Church of Perpetual Life) · Zippia
+(receita Life Extension) · Lifeboat.
 
 ### 23. Nancy Conrad — Founder & Chairman, Conrad Foundation
-<!-- SLOT_23 --> _(pesquisa pendente)_
+**Por que é notória:** Educadora e líder de impacto; viúva do astronauta **Pete Conrad**
+(Apollo 12). Fundou a **Conrad Foundation** (2008) e o **Conrad Challenge** — competição
+global de inovação STEM/empreendedorismo para jovens (13–18 anos), hoje com o Space Center
+Houston; a edição 2023-24 reuniu **4.000+ estudantes de 50+ países**. Palestrante (TED, MIT,
+Concordia); depôs no Comitê de Ciência da Câmara dos EUA.
+**Net worth / proxy:** **Não público.** *Proxy:* Conrad Foundation (nonprofit) de porte
+pequeno-médio (~US$1–5 mi/ano, estimativa; patrocínio Equinor / Space Center Houston).
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Sem evidência** · Filantropia **Média**
+(educação STEM) · Ecossistema **Média**. **Veredito:** potencial **prospectivo** — o Conrad
+Challenge é global e aceita estudantes brasileiros, mas **sem vínculo documentado** com o
+Brasil. Canal de baixo custo/alto sinal: incluir estudantes cariocas (via CEFET-RJ/SENAI/
+escolas) e mentoria.
+**Fontes:** Space Center Houston (parceria) · Concordia · Sigma Xi (Conrad Awards) · The Org.
 
 ### 24. Yael Sorek-Benvenisti — Deputy CEO, Insurtech Israel
-<!-- SLOT_24 --> _(pesquisa pendente)_
+**Por que é notória:** **Deputy CEO da Insurtech Israel** (organização central do ecossistema
+insurtech israelense — aceleradora eleita a melhor do mundo em 2024/25; 250+ startups). PhD
+em **Gerontologia** (Haifa); ex-CEO da Mediterranean Towers Ventures (AgeTech). Responsável
+por desenvolvimento internacional/delegações; conselho do **InsurTech Guatemala Hub** (1º hub
+da Insurtech Israel na América Latina, declarado "porta de entrada" para a América do Sul).
+**Net worth / proxy:** **Não público** (executiva de ecossistema, não investidora de capital
+próprio). Sem proxy patrimonial relevante.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Baixa** · Filantropia **Sem evidência**
+· Ecossistema **Alta**. **Veredito:** conectora com **mandato explícito de expansão à América
+Latina**; pode estruturar ponte insurtech Israel↔Rio (IRB-Brasil Re, SulAmérica, sandbox da
+SUSEP; o Brasil lidera o insurtech LatAm). Vínculo com o Rio ainda incipiente, mas estratégico.
+**Fontes:** insurtechisrael.news (Guatemala Hub) · ik-hub.com · MAPFRE (insurtech LatAm) · LinkedIn.
 
 ### 25. Anastasiya Giarletta — Principal, R42 Group
-<!-- SLOT_25 --> _(pesquisa pendente)_
+**Por que é notória:** **Principal no R42 Group** (VC de Silicon Valley em IA e longevidade;
+fundo ~US$16 mi; 57 empresas no portfólio) e gestora do R42 Institute (mentoria); cofundadora
+da Aikora Health; **Teaching Assistant em Stanford** (Longevity VC). MA por St Andrews.
+**Net worth / proxy:** **Não público.** *Proxy:* R42 é fundo early-stage small-to-mid (tickets
+~US$250 mil); ela é Principal (não GP/fundadora). Patrimônio = profissional de VC, sem exit
+conhecido. Baixa.
+**Pode ajudar o Rio?** Capital **Média** · Operações **Baixa** · Filantropia **Sem evidência**
+· Ecossistema **Alta**. **Veredito:** valor **médio-alto em ecossistema/mentoria** (rede
+Stanford + longevidade/IA) e **médio-baixo em capital** (exigiria mudança de mandato
+geográfico do fundo); **nenhum laço prévio com o Brasil** além do Summit.
+**Fontes:** Lifeboat (bio) · Longevity.Technology (R42 fund) · GIANT Health · Tracxn · LinkedIn.
 
-### 26. Susana Garcia-Robles — Investidora de impacto/VC (ex-IDB Lab)
-<!-- SLOT_26 --> _(pesquisa pendente)_
+### 26. Susana García-Robles — Managing Partner, Capria Ventures (ex-BID Lab) ⭐
+**Por que é notória:** **"Madrinha do venture capital latino-americano".** Por 21 anos (1999–
+2020) foi a arquiteta dos investimentos de seed/VC do **BID Lab/FOMIN**: alocou **US$300 mi+
+em 90 fundos** de toda a LatAm — e o **programa-piloto inaugural foi lançado no Brasil**
+(manteve **17 fundos ativos no país**). Hoje **Managing Partner da Capria Ventures**; Senior
+Advisor da **LAVCA**; cofundadora de WeXchange/WeInvest (rede de 320+ mulheres investidoras) e
+das associações de VC da Argentina e Colômbia. Top Woman Investor da LatAm (LAVCA) por 9 anos
+seguidos.
+**Net worth / proxy:** **Não público.** *Proxy de influência* (não patrimônio): catalisou
+US$300 mi+ diretamente; o BID Lab aprovou US$2 bi+ desde 1993. "Capital de rede e de
+legitimidade", não fortuna pessoal.
+**Pode ajudar o Rio?** Capital **Alta** · Operações **Média** · Filantropia/impacto **Alta** ·
+Ecossistema **Alta**. **Veredito:** **provavelmente a figura mais relevante do roster para
+capital/ecossistema do Rio.** Vínculos documentados com o Brasil (17 fundos; programa-piloto
+no país; South Summit Brazil); pode conectar gestoras/founders cariocas a LPs internacionais e
+legitimar o hub. Único senão: tende a atuar de forma sistêmica (toda a LatAm), não só no Rio.
+**Fontes:** Capria (ingresso) · LAVCA · ARCAP · Nathan Lustig Podcast (BID Lab) · AS/COA ·
+South Summit Brazil.
 
 ### 27. Devin Fidler — AI foresight strategist
-<!-- SLOT_27 --> _(pesquisa pendente)_
+**Por que é notório:** Futurista e **AI Foresight Strategist**; ex-**Research Director do
+Institute for the Future (IFTF)** (liderou a Workable Futures Initiative sobre futuro do
+trabalho); fundador da **Rethinkery**; autor na *HBR* (automação da gestão; "self-driving
+organization"). Singularity University (2009).
+**Net worth / proxy:** **Não público.** *Proxy:* consultoria de foresight para Fortune 1000;
+sem patrimônio extraordinário inferível. Baixa.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Baixa** · Filantropia **Sem evidência**
+· Ecossistema **Média**. **Veredito:** **ativo intelectual e de rede**, não financeiro; valor
+em foresight de IA/futuro do trabalho para o ecossistema; **nenhum laço com o Brasil** além do
+Summit.
+**Fontes:** IFTF/Workable Futures · HBR (2015) · Rethinkery (Crunchbase) · LinkedIn.
 
 ### 28. Alexandra Cattoni — Marketing/coaching (400K+ YouTube)
-<!-- SLOT_28 --> _(pesquisa pendente)_
+**Por que é notória:** Canadense; fundadora da **Copy Posse** (educação em copywriting/
+marketing digital): ~417 mil inscritos no YouTube (orgânico), academy + assinatura (SPARK) +
+agência; **DigitalMarketer of the Year (2022)**. *(O site grafa "Catton"; o correto é
+Cattoni.)*
+**Net worth / proxy:** **Não público.** *Proxy:* negócio de info-produto "7 figuras"
+(autodeclarado); receita estimada US$1–5 mi/ano (inferência de mercado). Baixa.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Baixa** · Filantropia **Sem evidência**
+· Ecossistema **Média**. **Veredito:** valor restrito a **mentoria/conteúdo de marketing
+digital**; operação 100% em inglês (barreira linguística para público lusófono); **nenhum laço
+com o Brasil** além do Summit.
+**Fontes:** alexcattoni.com · copyposse.com · DigitalMarketer (prêmio) · YouTube @copyposse.
 
 ### 29. James Hughes — Executive Director, IEET
-<!-- SLOT_29 --> _(pesquisa pendente)_
+**Por que é notório:** Sociólogo e bioético; **Executive Director do IEET** (Institute for
+Ethics and Emerging Technologies; co-fundado com Nick Bostrom); Senior Research Fellow no
+Center for Applied Ethics da **UMass Boston**; autor de *Citizen Cyborg*; principal voz do
+"transumanismo democrático". ~4.600 citações (Scholar).
+**Net worth / proxy:** **Não público.** *Proxy:* IEET (nonprofit) com receita ~US$615 mil e
+ativos ~US$1 mi (Form 990, 2024); ED de nonprofit pequeno. Baixa.
+**Pode ajudar o Rio?** Capital **Sem evidência** · Operações **Baixa** · Filantropia **Baixa**
+(IEET deu ~US$142 mil em grants, foco temático) · Ecossistema **Média**. **Veredito:** soft
+power intelectual com **vínculo documentado no Rio** — seminário com o **GIFT-H+ da FIOCRUZ**
+(financiado pelo CNPq, com o pesquisador Murilo Vilaça). Valor = pontes acadêmicas (bioética/
+deep tech) com Fiocruz/universidades; não capital.
+**Fontes:** IEET (seminário GIFT-H+/Fiocruz/CNPq) · Wikipedia · Google Scholar · ProPublica (990 IEET).
 
 ### 30. Trisa Thompson — ESG/Climate risk (ex-Dell)
-<!-- SLOT_30 --> _(pesquisa pendente)_
+**Por que é notória:** Ex-**SVP e Chief Responsibility Officer da Dell** (2008–2018); arquiteta
+do programa **"Legacy of Good"** (ESG/sustentabilidade integrada à estratégia). Hoje consultora
+(Plan C Advisors), conselheira (CIBO Technologies, Pledge To) e juíza dos Circular Awards do
+**WEF**.
+**Net worth / proxy:** **Não público** (não era "named executive officer" reportável; a Dell
+foi privada entre 2013–18). *Proxy de mercado:* SVP de big tech → patrimônio provável US$5–20
+mi (especulativo). Baixa.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Baixa** · Filantropia/impacto **Média**
+· Ecossistema **Média**. **Veredito:** autoridade global em **ESG/risco climático**; melhor fit
+= impacto/sustentabilidade (economia circular, resiliência climática no Rio) e mentoria. A Dell
+tem operação no Brasil, mas ela saiu em 2018 — **vínculo pessoal com o Rio: nenhum**.
+**Fontes:** Dell Blog (autora) · City of Austin (Net-Zero Hero) · PRWeb (CIBO board) · Greenbiz.
 
 ### 31. Christine Peterson — Co-founder, Foresight Institute
-<!-- SLOT_31 --> _(pesquisa pendente)_
+**Por que é notória:** Co-fundadora e Past President do **Foresight Institute** (1986;
+nanotecnologia, longevidade, deep tech). **Cunhou o termo "open source"** (1998); co-autora de
+*Unbounding the Future*. Conselhos: MIRI, Global Healthspan Policy Institute, National Space
+Society.
+**Net worth / proxy:** **Não público** (carreira nonprofit). Sem proxy relevante; patrimônio
+provavelmente modesto-médio (inferência). Baixa.
+**Pode ajudar o Rio?** Capital **Baixa** · Operações **Sem evidência** · Filantropia **Média**
+· Ecossistema **Alta** (capacidade). **Veredito:** **conectora de ecossistema de alto valor
+simbólico**; o Foresight tem **grants e fellowships globais** abertos a pesquisadores/startups
+cariocas de deep tech; pode legitimar o ecossistema do Rio. **Nenhum vínculo documentado** com
+o Brasil ainda.
+**Fontes:** Opensource.com (artigo dela) · Foresight Institute (grants/fellowship) · National
+Space Society · 80,000 Hours.
 
 ### 32. Gordan Lauc — Professor; CEO Genos / GlycanAge
 <!-- SLOT_32 --> _(pesquisa pendente)_
