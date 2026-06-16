@@ -21,14 +21,15 @@ design** and **framing**, which cost two rewrites later. Lesson reinforced: rest
 the lens before researching.
 
 **Phase 1 — Get the list (normal navigation, then escalation).** We first tried to **navigate the
-site normally** (`WebFetch` on the speakers page). It returned **HTTP 403** (Cloudflare-style
-anti-bot) and the roster was **JS-rendered**, so the HTML had no names. Web search **conflated the
-event with a different one** ("South Summit Brazil") — so scraped names would have poisoned
-everything. The reliable fix: **the user pasted the page HTML**, and we extracted the canonical
-list — **33 speakers** — from the repeating Elementor card pattern (`<h3>` = name, an excerpt block
-= role, `<a href>` = profile slug). We kept a **seed** (name + role + slug) per speaker for
-disambiguation. Lesson: try normal navigation first; when blocked, a user paste beats fighting the
-WAF; always keep a disambiguation seed.
+site normally** (`WebFetch` on the speakers page). It returned **HTTP 403**, which we *assumed* was
+the site's anti-bot — and the roster was **JS-rendered** anyway, so the HTML had no names. Web search
+**conflated the event with a different one** ("South Summit Brazil"), so scraped names would have
+poisoned everything. The reliable fix: **the user pasted the page HTML**, and we extracted the
+canonical list — **33 speakers** — from the repeating Elementor card pattern (`<h3>` = name, an
+excerpt block = role, `<a href>` = profile slug), keeping a **seed** (name + role + slug) per speaker
+for disambiguation. *(Much later we discovered that 403 was never the site at all — see "Plot twist"
+below.)* Lesson: try normal navigation first; when blocked, a user paste beats fighting the block;
+always keep a disambiguation seed.
 
 **Phase 2 — Fan-out research.** First attempt: we launched general-purpose workers — but each worker
 **spawned its own 5 nested search sub-agents**. ~30+ concurrent agents → a **server-wide rate-limit
@@ -60,10 +61,22 @@ for the wealth proxy.
   row**, and reframed the verdict column to **"how each can be useful to Rio"** (with ⭐ for
   documented ties) instead of a wall of "unlikely".
 
-**Phase 7 — Export.** "Send it as PDF." Headless Chromium couldn't be installed (blocked CDN), apt
-and archive.org were blocked, and the site WAF refused even browser-TLS impersonation. So we built a
-**browser-free** path: `markdown` → HTML → **fpdf2** with the system **DejaVu** font (landscape A4).
-That converter is bundled as `scripts/md_table_to_pdf.py`.
+**Phase 7 — Export.** "Send it as PDF." Headless Chromium couldn't be installed and every external
+host was refused — all by the **environment's egress allowlist** (the true cause of every "403"; see
+below), not by any site. So we built a **browser-free** path: `markdown` → HTML → **fpdf2** with the
+system **DejaVu** font (landscape A4). That converter is bundled as `scripts/md_table_to_pdf.py`.
+
+## Plot twist: the "403" was never the site
+Every "403" across the whole task — the summit pages, the Chromium-download CDN, `apt`, `archive.org`
+— turned out to be **this environment's own network egress allowlist**, not a website defense. The
+proof came from finally *reading the 403 body*: `Host not in allowlist: sa.unicornsummit.net. Add this
+host to your network egress settings to allow access.` — and even `example.com` returned the same
+message. A **transparent egress proxy** (allowlist fixed when the environment is created) was refusing
+every non-allowlisted host *before the request ever left the sandbox*; only `WebSearch` (Anthropic-side)
+and PyPI/GitHub (on the allowlist) worked. **No TLS/browser trick can pass that — it's infrastructure,
+not a site.** The fix is to add the host to the egress settings (and start a **new session** for it to
+take effect), or have the user paste the content. Hence the hardest-won rule: **read the 403 body
+before fighting it** — distinguish your own egress allowlist from a real site WAF.
 
 ## The mistakes that shaped the rules
 | What went wrong | Rule it produced |
@@ -72,7 +85,7 @@ That converter is bundled as `scripts/md_table_to_pdf.py`.
 | Invented an abstract "strongest lens" column | **Columns must answer the user's actual question** (Phase 5) |
 | "Net worth: not public" in most cells | **Always show a value/proxy + confidence** (Phase 5) |
 | Doc opened with 403 / "couldn't research" caveats | **Limitations go in chat, not the artifact** (Phase 6) |
-| Almost gave up at the 403 wall | **Escalate: search → real browser → Wayback → ask** (Phase 1) |
+| A "403" we blamed on the site was actually the env's egress allowlist | **Read the 403 body first** — site anti-bot vs. *your own egress allowlist* (config fix + new session) (Phase 1) |
 | Negative "unlikely" verdict for most rows | **Be constructive — how each *could* help** (Phase 5) |
 | Held results only in context (got summarized) | **Persist a slot scaffold + coverage counter** (Phase 3) |
 

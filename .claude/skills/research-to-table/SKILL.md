@@ -53,17 +53,27 @@ Agree on:
 2. **If it's plain server-rendered HTML**, extract directly from the repeating *card* pattern: each
    item is typically a **heading (name) + a subtitle (role/category) + a link (profile/detail URL)**.
    Pull `name + subtitle + URL` for every card. Mind pagination ("next/page").
-3. **If it's JS-rendered or behind anti-bot (HTTP 403 / Cloudflare / login)**, escalate in order:
-   (a) **ask the user to paste the page HTML or the list** — fastest and most reliable; (b)
-   `WebSearch` for the roster; (c) a **real browser** (Playwright) or `curl_cffi` with browser-TLS
-   impersonation; (d) the **Wayback Machine**. Some sandboxes block browser downloads and even the
-   edge IP — if so, fall back to (a).
+3. **If you get blocked (HTTP 403 / a challenge page / login), DIAGNOSE the block before fighting it
+   — read the response body and headers.** Three very different causes:
+   - **Your *own* environment's egress allowlist** — e.g. body = `Host not in allowlist: …`, and even
+     `example.com` is blocked. The request never reaches the internet; your sandbox's transparent proxy
+     refuses it. **No client trick (TLS impersonation, headers, a real browser) can ever pass it.** Fix:
+     add the host to the environment's egress settings — which **usually requires a NEW
+     session/environment to take effect** — or have the user paste the content.
+   - **The site's anti-bot/WAF** — a multi-KB "Just a moment"/Cloudflare JS challenge, `cf-mitigated`
+     headers. Here client tricks help: try a **real browser** (Playwright) or `curl_cffi` with
+     browser-TLS impersonation, then the **Wayback Machine**.
+   - **Auth/login required** → use an authenticated tool/API, not scraping.
+   Universal fallbacks regardless of cause: (a) **ask the user to paste the page HTML/list** (fastest);
+   (b) `WebSearch`. A strong tell that it's *your* egress policy, not the site: browser-binary
+   downloads, `apt`, and `archive.org` are all blocked too.
 4. **Build the canonical seed list**: `[ name | identifier ]` per subject, where the identifier is a
    role/company/URL/ID. A **disambiguation seed is non-negotiable** for common names/homonyms.
 5. **Sanity-check** the count and odd entries (CMS artifacts, two names merged into one, typos in
    slugs). Note anything to confirm during research.
 
-> Why: don't quit at a 403 — but also don't burn an hour fighting a WAF when a paste solves it.
+> Why: **read the 403 before fighting it.** Very often it's your *own* sandbox's egress allowlist (a
+> config fix that needs a new session), not the site — and a user paste beats hours of client tricks anyway.
 
 ## Phase 2 — Research loop: fan-out with FLAT workers
 For each subject, launch **one** research sub-agent that fills the columns.
@@ -141,5 +151,7 @@ Markdown is the source of truth.
 - ❌ An abstract column nobody asked for (e.g. "strongest lens") instead of the question asked.
 - ❌ "Value: not public" with no proxy. **Always give a size proxy + confidence.**
 - ❌ Opening the document by apologizing about access blocks. The reader doesn't care; that's chat.
-- ❌ Giving up at a 403 before trying search / a real browser / alt sources.
+- ❌ Fighting a 403 with TLS/browser tricks before **reading its body** — it's often your *own*
+  environment's egress allowlist (`Host not in allowlist`), fixable in config (+ a new session), not by
+  any client trick. (But don't just quit either — diagnose, then paste / search / real browser.)
 - ❌ A wall of "no / unlikely" rows. Reframe each as the realistic way the subject *could* contribute.
