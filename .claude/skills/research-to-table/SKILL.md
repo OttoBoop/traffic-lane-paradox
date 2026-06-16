@@ -81,20 +81,20 @@ For each subject, launch **one** research sub-agent that fills the columns.
 
 **Reusable worker prompt template:**
 ```
-REGRAS: você NÃO pode usar a ferramenta Agent/Task nem lançar sub-agentes. Faça as buscas você
-mesmo com WebSearch/WebFetch (máx ~8–10 chamadas). Se um site bloquear (403/login), não insista —
-use snippets e siga. Devolva APENAS o bloco estruturado (sem preâmbulo).
+RULES: you may NOT use the Agent/Task tool or spawn sub-agents. Do the searches yourself with
+WebSearch/WebFetch (cap ~8–10 calls). If a site blocks you (403/login), don't insist — use
+snippets and move on. Return ONLY the structured block (no preamble).
 
-SUJEITO: <nome> — <seed: papel/empresa/URL>
-CONTEXTO/LENTE: <o que é a lista e qual a pergunta-objetivo>
+SUBJECT: <name> — <seed: role/company/URL>
+CONTEXT/LENS: <what the list is and the goal question>
 
-Preencha, em <idioma>, com citação inline [n] e fontes no fim:
-- <COLUNA "o que é">: descrição curta + por que importa.
-- <COLUNA "tamanho/valor">: cifra pública (fonte+data+confiança) OU um PROXY rotulado
-  (valuation/captação/receita/AUM/orçamento/faixa salarial/ativos). Nunca "não público" sozinho.
-- <COLUNA da LENTE>: ângulo concreto e CONSTRUTIVO de como <sujeito> serve a <objetivo>;
-  separe vínculo DOCUMENTADO (fato+fonte) de capacidade plausível.
-- FONTES & CONFIANÇA: links (priorize primárias) + confiança geral [Alta/Média/Baixa].
+Fill in, in <language>, with inline citations [n] and a source list at the end:
+- <COLUMN "what it is">: short description + why it matters.
+- <COLUMN "size/value">: public figure (source+date+confidence) OR a labelled PROXY
+  (valuation/funding/revenue/AUM/budget/salary band/assets). Never a bare "not public".
+- <LENS COLUMN>: a concrete, CONSTRUCTIVE angle on how <subject> serves <goal>;
+  separate DOCUMENTED ties (fact+source) from plausible capability.
+- SOURCES & CONFIDENCE: links (prefer primary) + overall confidence [High/Medium/Low].
 ```
 (Workers run in their own context, so only the compact result lands in yours — that's why fan-out
 keeps your context clean even for large N.)

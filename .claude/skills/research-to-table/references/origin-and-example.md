@@ -4,9 +4,9 @@ This skill is a generalization of one real, messy task. Reading the story is the
 understand *why* each phase exists, because most rules here are scar tissue from a specific mistake.
 
 ## The initial ask
-> "Preciso de uma tabela com cada *speaker* de um evento (link do site), dizendo **por que é
-> notório**, seu **net worth**, e **se há motivo para crer que ele pode ajudar o Rio de Janeiro**.
-> Pesquisa relativamente profunda por palestrante, em loop, e depois uma fase de revisão."
+> "I need a table of every *speaker* at an event (here's the site link), saying **why each is
+> notable**, their **net worth**, and **whether there's any reason to believe they can help Rio de
+> Janeiro**. Relatively deep research per speaker, in a loop, then a review phase." *(translated)*
 
 So: **N subjects** (speakers) × **3 dimensions** (notability, net worth, "can help Rio") → **one
 table**, with deep per-subject research and a review pass. That shape — *many subjects, several
