@@ -1,5 +1,11 @@
 # Traffic Lane Paradox Simulation
 
+## ▶️ Live Demo
+
+**[Open the simulator on GitHub Pages →](https://ottoboop.github.io/traffic-lane-paradox/)**
+
+Runs entirely in your browser — no install, no server. Just click the link above to launch the interactive simulation.
+
 ## Purpose
 
 This simulation demonstrates how adding more lanes to a road can paradoxically increase travel time when vehicles must cross paths at a Y-intersection. The project is an interactive HTML/JavaScript application that runs entirely in the browser with no server dependencies.
@@ -152,7 +158,7 @@ node run_traffic_suite.js --id S --id X --id AA --id AH
 
 | File | Purpose |
 |------|---------|
-| `index.html` | Interactive browser UI — open this to run the simulator (formerly `traffic_v18.html`) |
+| `index.html` | Interactive browser UI — open this to run the simulator locally, or use the [live GitHub Pages demo](https://ottoboop.github.io/traffic-lane-paradox/) (formerly `traffic_v18.html`) |
 | `traffic_core.js` | Simulation engine: Road, Car, Sim, Ren classes and all physics |
 | `traffic_test_suite.js` | Shared test card registry (A–Y + AA–BP), scenario definitions and verdict functions |
 | `run_traffic_suite.js` | Node.js CLI runner for headless test execution |
