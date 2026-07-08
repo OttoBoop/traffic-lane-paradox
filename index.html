@@ -535,6 +535,8 @@
         ttCar: 'Carro', ttMode: 'modo', ttSpeed: 'velocidade', ttTarget: 'alvo',
         ttStuck: 'ticks parado', ttBatch: 'batch', ttPhase: 'fase da manobra',
         ttLeft: 'esquerda', ttRight: 'direita',
+        ttDp: 'dist. à bifurcação', ttSteer: 'direção', ttYieldFor: 'cedendo há',
+        ttPremature: 'cedeu cedo demais', ttBatchTgt: 'alvo do lote',
         rank: ['1º','2º','3º','4º','5º','6º']
       },
       en: {
@@ -553,6 +555,8 @@
         ttCar: 'Car', ttMode: 'mode', ttSpeed: 'speed', ttTarget: 'target',
         ttStuck: 'stuck ticks', ttBatch: 'batch', ttPhase: 'maneuver phase',
         ttLeft: 'left', ttRight: 'right',
+        ttDp: 'dist to fork', ttSteer: 'steer', ttYieldFor: 'yielding for',
+        ttPremature: 'premature yield', ttBatchTgt: 'batch target',
         rank: ['1st','2nd','3rd','4th','5th','6th']
       }
     };
@@ -588,6 +592,8 @@
     /* ── /i18n ────────────────────────────────────────────── */
 
     const { Sim, Ren, V0_DEF, RENDER_THEMES } = window.TrafficCore;
+    /* Diagnostic overlay: ?debug=1 enables at load; 'd' toggles live. */
+    let DEBUG_OVERLAY = new URLSearchParams(location.search).get('debug') === '1';
     const MIN_LOGICAL_CANVAS_W = 220;
     const MIN_LOGICAL_CANVAS_H = 260;
     let scenarios = [{ lanes: 1 }, { lanes: 2 }, { lanes: 3 }], sims = [], rens = [], cvs = [];
@@ -619,7 +625,7 @@
       const nc = Math.max(2, parseInt($('nCars').value) || 20), sp = parseInt($('split').value) || 50;
       sims = scenarios.map((sc, i) => { const s = new Sim(sc.lanes, nc, sp, gSeed + i); const cv = cvs[i]; if (cv) { const logical = logicalCanvasSize(cv); s.init(logical.w, logical.h); } return s; });
       const selTheme = ($('themeSelect') || {}).value || 'rioSatellite';
-      rens = sims.map((s, i) => new Ren(cvs[i], s, { theme: selTheme }));
+      rens = sims.map((s, i) => new Ren(cvs[i], s, { theme: selTheme, debug: DEBUG_OVERLAY }));
     }
     function renderAll() { rens.forEach(r => r.draw()); sims.forEach((s, i) => { const el = $(`t${i}`); if (!el) return; el.textContent = s.timerSec.toFixed(2) + 's'; el.className = 'tmr' + (s.finished ? ' done' : (!s.started ? ' wait' : '')); }); }
     function updateRanks() { sims.forEach((s, i) => { if (s.finished && !finishOrder.includes(i)) finishOrder.push(i); }); const lb = t('rank'); sims.forEach((_, i) => { const el = $(`r${i}`); if (!el) return; const ri = finishOrder.indexOf(i); if (ri >= 0) { el.textContent = lb[ri] || `#${ri + 1}`; el.className = `rank show ${ri < 3 ? 'r' + (ri + 1) : 'rx'}`; } }); }
@@ -646,13 +652,24 @@
       const car = rens[i].carAt(e.clientX - rect.left, e.clientY - rect.top);
       if (!car) { tipEl.style.display = 'none'; return; }
       const tgt = car.target === 'left' ? t('ttLeft') : t('ttRight');
-      tipEl.innerHTML =
+      let html =
         `<b>${t('ttCar')} #${car.id}</b><br>` +
         `${t('ttMode')}: <b>${car.trafficMode}</b><br>` +
         `${t('ttSpeed')}: ${(car.speed || 0).toFixed(2)} · ${t('ttTarget')}: ${tgt}<br>` +
         `${t('ttStuck')}: ${Math.round(car.noProgressTicks || 0)}` +
         (car.batchId !== null && car.batchId !== undefined ? ` · ${t('ttBatch')}: ${car.batchId}` : '') +
         (car.maneuvering ? `<br>${t('ttPhase')}: ${Math.floor((car.maneuverTimer || 0) / 12) % 4}` : '');
+      if (rens[i].debugMode) {
+        const sim = rens[i].sim;
+        if (car._dbgDp !== undefined && car._dbgDp !== null) html += `<br>${t('ttDp')}: ${Math.round(car._dbgDp)}px`;
+        html += `<br>${t('ttSteer')}: ${(car.steer || 0).toFixed(2)}`;
+        if (car._dbgYield) {
+          html += `<br>${t('ttYieldFor')}: ${Math.round(sim.ticks - car._dbgYield.startTick)}t` +
+            (car._dbgYield.premature ? ` · <b>${t('ttPremature')}</b>` : '');
+        }
+        if (car.batchTarget) html += `<br>${t('ttBatchTgt')}: ${car.batchTarget}`;
+      }
+      tipEl.innerHTML = html;
       tipEl.style.display = 'block';
       const tw = tipEl.offsetWidth, tH = tipEl.offsetHeight;
       let lx = e.clientX + 14, ly = e.clientY + 12;
@@ -661,17 +678,24 @@
       tipEl.style.left = lx + 'px'; tipEl.style.top = ly + 'px';
     });
     $('simC').addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+    window.addEventListener('keydown', e => {
+      if (e.key === 'd' && !e.target.matches('input,select,textarea')) {
+        DEBUG_OVERLAY = !DEBUG_OVERLAY;
+        rens.forEach(r => r.debugMode = DEBUG_OVERLAY);
+        renderAll();
+      }
+    });
     $('langPt').onclick = () => applyLang('pt');
     $('langEn').onclick = () => applyLang('en');
-    /* Idle render loop: keeps scene animations (smoke, snowfall, twinkle) and
-       hover tooltips alive while paused. renderAll() never ticks the sims, so
-       timers and car positions stay frozen. ~30fps, skipped while running. */
+    /* Idle render loop: keeps scene animations (smoke, snowfall, twinkle), the
+       debug overlay and hover tooltips alive while paused. renderAll() never
+       ticks the sims, so timers and car positions stay frozen. ~30fps. */
     let lastIdle = 0;
     function idleLoop(time) {
       if (!gRun && time - lastIdle > 33) {
         lastIdle = time;
         const key = ($('themeSelect') || {}).value;
-        if (key && key !== 'classic' && key !== 'rioSatellite') renderAll();
+        if (DEBUG_OVERLAY || (key && key !== 'classic' && key !== 'rioSatellite')) renderAll();
       }
       requestAnimationFrame(idleLoop);
     }

@@ -4243,6 +4243,159 @@
         return inst.state.results.every((r) => r.exists);
       },
     },
+    // ─── Card BS: Premature yield by ETA (invariant b) ────────────────────────
+    {
+      id: "BS",
+      section: "mixed",
+      family: "guard_green",
+      name: "Premature yield — own ETA vs active batch's remaining transit",
+      proof:
+        "Q-style 2L (seed 302) and 3L (seed 303) 10-car 50/50 races. A yield entry " +
+        "is PREMATURE when dp > 2*CAR_L and etaOwn > batchEta*YIELD_ETA_FACTOR, " +
+        "using the SAME optimistic _yieldEtas formula as the yield gate (etaOwn " +
+        "assumes >= half cruise speed; batchEta floors member speed at 0.3). Since " +
+        "the Bug-1 fix the gate enforces exactly this condition, so the count is " +
+        "zero by construction — this card guards against regressions of the gate.",
+      build() {
+        return {
+          cases: [
+            standardCase("2L", { lanes: 2, cars: 10, split: 50, seed: 302, maxTicks: 6000, stepsPerFrame: 8 }),
+            standardCase("3L", { lanes: 3, cars: 10, split: 50, seed: 303, maxTicks: 6000, stepsPerFrame: 8 }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const out = {};
+        inst.cases.forEach((k) => {
+          const m = k.sim.testMetrics;
+          const worst = m.prematureYieldLog.reduce((w, e) => (!w || e.etaOwn / Math.max(e.batchEta, 0.1) > w.etaOwn / Math.max(w.batchEta, 0.1) ? e : w), null);
+          out[`${k.label} premature/yields`] = `${m.prematureYieldCount}/${m.yieldEnterCount}`;
+          out[`${k.label} worst`] = worst
+            ? `car ${worst.carId}@t${Math.round(worst.tick)} dp=${worst.dp} eta ${worst.etaOwn}s vs batch ${worst.batchEta}s`
+            : "none";
+        });
+        return out;
+      },
+      verdict(inst) {
+        return inst.cases.reduce((s, k) => s + k.sim.testMetrics.prematureYieldCount, 0) === 0;
+      },
+    },
+    // ─── Card BT: Batch∧maneuver hybrid state (invariant a) ───────────────────
+    {
+      id: "BT",
+      section: "mixed",
+      family: "guard_green",
+      name: "Batch∧maneuver hybrid — granted cars must not wobble (esp. reverse in zone)",
+      proof:
+        "3L/40 50/50, seeds 307 + 42. The hybrid state is strongly seed-dependent: " +
+        "the 2026-06-12 hunt found seed 307 (the usual stress seed) produces ZERO " +
+        "hybrid ticks while neighbours produce hundreds at plain dt=1 (s308=29, " +
+        "s309=87, s310=306 + 9 DNFs, s42=572 + 10 overlaps). The wobble override " +
+        "(phases 0/2 set desSpd=-REVERSE_SPD) has no batch exclusion, so a granted " +
+        "car reverse-wobbles at max steer on the zone APPROACH (dp 160-370; the " +
+        "in-zone disc itself stays clean — reverseInZone counts that sub-case). " +
+        "Verdict is the future guard condition: zero hybrid ticks across both seeds.",
+      build() {
+        return {
+          cases: [
+            standardCase("s307", { lanes: 3, cars: 40, split: 50, seed: 307, maxTicks: 12000, stepsPerFrame: 20 }),
+            standardCase("s42", { lanes: 3, cars: 40, split: 50, seed: 42, maxTicks: 12000, stepsPerFrame: 20 }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const out = {};
+        inst.cases.forEach((k) => {
+          const m = k.sim.testMetrics;
+          const sample = m.batchManeuverLog.slice(0, 2)
+            .map((e) => `car ${e.carId}@t${Math.round(e.tick)} ph${e.phase} v=${e.speed}${e.inZone ? " IN-ZONE" : ""}${e.reversing ? " REV" : ""}`)
+            .join(" | ");
+          out[`${k.label} hybrid/revZone`] = `${m.batchManeuverTickCount}/${m.batchManeuverReverseInZoneCount}`;
+          out[`${k.label} overlaps`] = m.overlapCount;
+          out[`${k.label} sample`] = sample || "none";
+        });
+        return out;
+      },
+      verdict(inst) {
+        return inst.cases.every((k) =>
+          k.sim.testMetrics.batchManeuverTickCount === 0 &&
+          k.sim.testMetrics.batchManeuverReverseInZoneCount === 0);
+      },
+    },
+    // ─── Card BU: Granted-crossing safety — steer + near-miss in zone (invariant c) ──
+    {
+      id: "BU",
+      section: "mixed",
+      family: "guard_green",
+      name: "Granted-crossing safety — aggressive steer and near-misses inside the zone",
+      proof:
+        "3L/40 seed 307 + 2L/10 seed 302. Counts (1) ticks where a granted car inside " +
+        "the conflict zone holds |steer| > 0.25 (vs MAX_ST 0.40), and (2) near-misses " +
+        "(<33px center distance) involving a granted car inside the zone. Verdict is " +
+        "the future guard condition: zero of each.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L/40", { lanes: 3, cars: 40, split: 50, seed: 307, maxTicks: 12000, stepsPerFrame: 20 }),
+            standardCase("2L/10", { lanes: 2, cars: 10, split: 50, seed: 302, maxTicks: 6000, stepsPerFrame: 8 }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const out = {};
+        inst.cases.forEach((k) => {
+          const m = k.sim.testMetrics;
+          const worst = m.grantedNearMissLog.reduce((w, e) => (!w || e.gap < w.gap ? e : w), null);
+          out[`${k.label} aggrSteer/nearMiss`] = `${m.zoneAggressiveSteerCount}/${m.grantedNearMissCount}`;
+          out[`${k.label} worst miss`] = worst ? `${worst.aId}↔${worst.bId}@t${Math.round(worst.tick)} gap=${worst.gap}px` : "none";
+        });
+        return out;
+      },
+      verdict(inst) {
+        return inst.cases.reduce(
+          (s, k) => s + k.sim.testMetrics.zoneAggressiveSteerCount + k.sim.testMetrics.grantedNearMissCount, 0) === 0;
+      },
+    },
+    // ─── Card BV: Yield duration / idle-zone wait (absorbs diagnose_yield*.js) ──
+    {
+      id: "BV",
+      section: "mixed",
+      family: "guard_green",
+      name: "Yield duration — bounded episodes, no waiting on an idle zone",
+      proof:
+        "3L/12 seed 307 (light) and 3L/40 seed 307 (dense, 3000t cap). Tracks yield " +
+        "episode durations and maxYieldIdleTicks — the longest CONSECUTIVE stretch " +
+        "spent in yield while the zone had NO active batch (waiting for nobody). " +
+        "Short idle windows between grants are by design (BATCH_HOLD_TICKS spacing); " +
+        "the cumulative idle per episode is reported in yield_exit events. " +
+        "Verdict: maxYieldIdleTicks < 120 across cases.",
+      build() {
+        return {
+          cases: [
+            standardCase("3L/12", { lanes: 3, cars: 12, split: 50, seed: 307, maxTicks: 1500, stepsPerFrame: 8 }),
+            standardCase("3L/40", { lanes: 3, cars: 40, split: 50, seed: 307, maxTicks: 3000, stepsPerFrame: 20 }),
+          ],
+          state: {},
+        };
+      },
+      metrics(inst) {
+        const out = {};
+        inst.cases.forEach((k) => {
+          const m = k.sim.testMetrics;
+          const ds = [...m.yieldDurations].sort((a, b) => a - b);
+          const p50 = ds.length ? Math.round(ds[Math.floor(ds.length / 2)]) : 0;
+          out[`${k.label} exits/p50/max`] = `${m.yieldExitCount}/${p50}/${Math.round(m.maxYieldDurationTicks)}`;
+          out[`${k.label} maxIdle`] = Math.round(m.maxYieldIdleTicks);
+        });
+        return out;
+      },
+      verdict(inst) {
+        return inst.cases.every((k) => k.sim.testMetrics.maxYieldIdleTicks < 120);
+      },
+    },
   ];
 
   const FAMILY_META = {
